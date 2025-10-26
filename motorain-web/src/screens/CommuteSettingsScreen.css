@@ -1,0 +1,120 @@
+/* CommuteSettingsScreen.css */
+.commute-screen {
+  min-height: 100vh;
+}
+
+.section-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1D1D1F;
+  margin-bottom: 16px;
+  letter-spacing: -0.3px;
+}
+
+.setting-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.setting-row:last-child {
+  border-bottom: none;
+}
+
+.setting-label {
+  font-size: 16px;
+  font-weight: 500;
+  color: #1D1D1F;
+}
+
+.switch {
+  position: relative;
+  width: 51px;
+  height: 31px;
+  background: #E5E5E7;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.switch.active {
+  background: #007AFF;
+}
+
+.switch::after {
+  content: '';
+  position: absolute;
+  width: 27px;
+  height: 27px;
+  background: white;
+  border-radius: 50%;
+  top: 2px;
+  left: 2px;
+  transition: transform 0.2s;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.switch.active::after {
+  transform: translateX(20px);
+}
+
+.day-selector {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.day-button {
+  padding: 12px 8px;
+  border: 1px solid #e5e5e7;
+  border-radius: 8px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 14px;
+  font-weight: 500;
+  background: white;
+}
+
+.day-button.active {
+  background: #007AFF;
+  color: white;
+  border-color: #007AFF;
+}
+
+.input-group {
+  margin: 16px 0;
+}
+
+.input-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: #1D1D1F;
+  font-size: 16px;
+}
+
+.input-group input {
+  width: 100%;
+  padding: 16px;
+  border: 1px solid #e5e5e7;
+  border-radius: 12px;
+  font-size: 16px;
+  background: #f8f9fa;
+  transition: all 0.2s;
+}
+
+.input-group input:focus {
+  outline: none;
+  border-color: #007AFF;
+  background: white;
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+}
+
+.input-group input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

@@ -1,0 +1,31 @@
+/* SettingsScreen.css */
+.settings-screen {
+  min-height: 100vh;
+}
+
+.info-value {
+  color: #8E8E93;
+  font-weight: 500;
+}
+
+.about-text {
+  font-size: 14px;
+  color: #6D6D70;
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+
+.notification-card {
+  background: #FFF3E0;
+  border-left: 4px solid #FF9800;
+}
+
+.notification-card h3 {
+  color: #E65100;
+  margin-bottom: 8px;
+}
+
+.notification-card p {
+  color: #BF360C;
+  margin-bottom: 16px;
+}

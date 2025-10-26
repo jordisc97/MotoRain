@@ -1,0 +1,49 @@
+{
+  "name": "motorain-web",
+  "version": "1.0.0",
+  "description": "MotoRain - Weather Route Analyzer Web App",
+  "main": "index.js",
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
+    "deploy": "npm run build && npx netlify deploy --prod --dir=build",
+    "deploy:preview": "npm run build && npx netlify deploy --dir=build"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "axios": "^1.3.4",
+    "date-fns": "^2.29.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-native-calendar-picker": "^7.1.3",
+    "react-native-date-picker": "^4.3.3",
+    "react-native-elements": "^3.4.3",
+    "react-native-modal-datetime-picker": "^14.0.1",
+    "react-native-paper": "^5.11.1",
+    "react-native-vector-icons": "^10.0.2",
+    "react-native-web": "^0.19.6",
+    "react-router-dom": "^6.8.1",
+    "react-scripts": "5.0.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.0.28",
+    "@types/react-dom": "^18.0.11",
+    "netlify-cli": "^17.0.0",
+    "typescript": "^4.9.5"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "homepage": "."
+}

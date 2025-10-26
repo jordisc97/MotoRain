@@ -1,0 +1,67 @@
+/* TabBar.css */
+.tab-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 80px;
+  background: #ffffff;
+  border-top: 1px solid #e5e5e7;
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  padding-bottom: 20px;
+  z-index: 1000;
+}
+
+.tab-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-decoration: none;
+  color: #8E8E93;
+  padding: 8px;
+  border-radius: 12px;
+  transition: all 0.2s;
+  min-width: 60px;
+}
+
+.tab-item.active {
+  background: #007AFF;
+  color: white;
+}
+
+.tab-icon {
+  font-size: 22px;
+  margin-bottom: 4px;
+  transition: transform 0.2s;
+}
+
+.tab-item.active .tab-icon {
+  transform: scale(1.1);
+}
+
+.tab-label {
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.tab-item.active .tab-label {
+  font-weight: 600;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .tab-bar {
+    height: 70px;
+    padding-bottom: 15px;
+  }
+  
+  .tab-icon {
+    font-size: 20px;
+  }
+  
+  .tab-label {
+    font-size: 9px;
+  }
+}

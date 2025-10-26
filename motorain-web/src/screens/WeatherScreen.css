@@ -1,0 +1,75 @@
+/* WeatherScreen.css */
+.weather-screen {
+  min-height: 100vh;
+}
+
+.route-info {
+  background: #f8f9fa;
+  padding: 16px;
+  border-radius: 12px;
+  margin: 16px 0;
+  border: 1px solid #e5e5e7;
+}
+
+.route-info p {
+  margin: 4px 0;
+  font-size: 14px;
+  color: #6D6D70;
+}
+
+.route-info strong {
+  color: #1D1D1F;
+  font-weight: 600;
+}
+
+.weather-result {
+  text-align: center;
+}
+
+.weather-icon {
+  font-size: 48px;
+  margin: 24px 0;
+}
+
+.weather-status {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+.weather-status.rain {
+  color: #FF3B30;
+}
+
+.weather-status.clear {
+  color: #34C759;
+}
+
+.weather-message {
+  font-size: 16px;
+  color: #6D6D70;
+  margin-bottom: 16px;
+}
+
+.weather-map {
+  width: 100%;
+  height: 200px;
+  border-radius: 12px;
+  margin: 16px 0;
+  background: #f0f0f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #e5e5e7;
+  overflow: hidden;
+}
+
+.weather-map canvas {
+  border-radius: 12px;
+}
+
+.weather-time {
+  color: #8E8E93;
+  font-size: 12px;
+  margin-top: 16px;
+}
