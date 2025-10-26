@@ -9,6 +9,16 @@ A real-time weather analysis application that helps cyclists and motorcyclists d
 - **Visual Maps**: Generates annotated maps showing weather patterns and your route
 - **Smart Recommendations**: Provides weather-based recommendations for your journey
 - **Modern Web Interface**: Clean, responsive frontend with Bootstrap styling
+- **📱 Mobile App Simulation**: Interactive iOS app preview with modern Revolut-inspired design
+
+## 📱 Mobile App Preview
+
+Try the mobile app simulation: Open `frontend/mobile-app-simulation.html` in your browser to see the iOS app design with:
+- **Modern UI**: Revolut-inspired minimalistic design
+- **Commute Settings**: Configure work days and commute times
+- **Weather Integration**: Real-time weather checking with map visualization
+- **Address Sync**: Automatic synchronization between screens
+- **Push Notifications**: Simulated rain alerts and clear weather notifications
 
 ## 🏗️ Architecture
 
@@ -24,6 +34,12 @@ A real-time weather analysis application that helps cyclists and motorcyclists d
 - **Font Awesome** for icons
 - **Vanilla JavaScript** for API communication
 - **Modern CSS** with custom styling
+
+### Mobile App (React Native Ready)
+- **iOS App Structure** with React Native components
+- **Background Processing** for automatic rain checks
+- **Push Notifications** for commute alerts
+- **App Store Ready** configuration
 
 ## 📁 Project Structure
 
@@ -224,6 +240,28 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - **FastAPI** for the excellent web framework
 - **Selenium** for web automation capabilities
 - **Bootstrap** for the responsive UI components
+
+## 📱 Apple App Store Deployment
+
+To deploy the mobile app to the Apple App Store:
+
+### Prerequisites
+- **Apple Developer Account** ($99/year)
+- **macOS** with Xcode installed
+- **React Native CLI** and development environment
+
+### Steps
+1. **Set up React Native project** using the files in `mobile-app/` directory
+2. **Configure iOS settings** following `mobile-app/ios-config.md`
+3. **Set up Apple Push Notifications** with APNs certificates
+4. **Test on iOS Simulator** and physical devices
+5. **Submit to App Store Connect** for review
+
+### Key Features for App Store
+- **Automatic rain alerts** during commute hours
+- **Background processing** for weather checks
+- **Push notifications** with rain/clear weather alerts
+- **Modern iOS design** following Apple guidelines
 
 ## 📞 Support
 

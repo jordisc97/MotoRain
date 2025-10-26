@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MotoRain Mobile App - Simulation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0f0f0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .phone-container {
+            width: 375px;
+            height: 812px;
+            background: #000;
+            border-radius: 40px;
+            padding: 8px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            position: relative;
+        }
+
+        .phone-screen {
+            width: 100%;
+            height: 100%;
+            background: #fff;
+            border-radius: 32px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .status-bar {
+            height: 44px;
+            background: #000;
+            color: #fff;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .app-content {
+            height: calc(100% - 44px);
+            overflow-y: auto;
+        }
+
+        .tab-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 83px;
+            background: #fff;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            padding-bottom: 34px;
+        }
+
+        .tab-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 8px;
+            transition: background 0.2s;
+        }
+
+        .tab-item.active {
+            background: #e3f2fd;
+        }
+
+        .tab-icon {
+            font-size: 24px;
+            margin-bottom: 4px;
+        }
+
+        .tab-label {
+            font-size: 10px;
+            color: #666;
+        }
+
+        .tab-item.active .tab-label {
+            color: #2196F3;
+        }
+
+        .screen {
+            display: none;
+            height: calc(100% - 83px);
+            overflow-y: auto;
+        }
+
+        .screen.active {
+            display: block;
+        }
+
+        .header {
+            background: #2196F3;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            font-size: 14px;
+            opacity: 0.8;
+        }
+
+        .card {
+            background: white;
+            margin: 15px;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .status-card {
+            background: linear-gradient(135deg, #4CAF50, #45a049);
+            color: white;
+            text-align: center;
+        }
+
+        .button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            margin: 10px 0;
+            transition: background 0.2s;
+        }
+
+        .button:hover {
+            background: #45a049;
+        }
+
+        .button.secondary {
+            background: #2196F3;
+        }
+
+        .button.secondary:hover {
+            background: #1976D2;
+        }
+
+        .button.warning {
+            background: #FF9800;
+        }
+
+        .button.warning:hover {
+            background: #F57C00;
+        }
+
+        .switch {
+            position: relative;
+            width: 50px;
+            height: 30px;
+            background: #ccc;
+            border-radius: 15px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .switch.active {
+            background: #4CAF50;
+        }
+
+        .switch::after {
+            content: '';
+            position: absolute;
+            width: 26px;
+            height: 26px;
+            background: white;
+            border-radius: 50%;
+            top: 2px;
+            left: 2px;
+            transition: transform 0.2s;
+        }
+
+        .switch.active::after {
+            transform: translateX(20px);
+        }
+
+        .setting-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .setting-row:last-child {
+            border-bottom: none;
+        }
+
+        .time-display {
+            background: #f0f0f0;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .notification {
+            position: fixed;
+            top: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #4CAF50;
+            color: white;
+            padding: 15px 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .notification.show {
+            opacity: 1;
+        }
+
+        .notification.rain {
+            background: #F44336;
+        }
+
+        .weather-icon {
+            font-size: 40px;
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .route-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+
+        .input-group {
+            margin: 15px 0;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+
+        .day-selector {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 10px;
+            margin: 15px 0;
+        }
+
+        .day-button {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .day-button.active {
+            background: #2196F3;
+            color: white;
+            border-color: #2196F3;
+        }
+
+        .simulation-controls {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            z-index: 1000;
+        }
+
+        .simulation-controls h3 {
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        .simulation-controls button {
+            display: block;
+            width: 100%;
+            margin: 5px 0;
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .simulation-controls .sim-rain {
+            background: #F44336;
+            color: white;
+        }
+
+        .simulation-controls .sim-clear {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .simulation-controls .sim-test {
+            background: #2196F3;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="simulation-controls">
+        <h3>🎮 Simulation Controls</h3>
+        <button class="sim-rain" onclick="simulateRainAlert()">🌧️ Simulate Rain Alert</button>
+        <button class="sim-clear" onclick="simulateClearWeather()">✅ Simulate Clear Weather</button>
+        <button class="sim-test" onclick="simulateNotification()">📱 Test Notification</button>
+    </div>
+
+    <div class="phone-container">
+        <div class="phone-screen">
+            <div class="status-bar">
+                <span>9:41</span>
+                <span>MotoRain</span>
+                <span>100%</span>
+            </div>
+            
+            <div class="app-content">
+                <!-- Home Screen -->
+                <div id="home-screen" class="screen active">
+                    <div class="header">
+                        <h1>MotoRain</h1>
+                        <p>Your Personal Rain Alert System</p>
+                    </div>
+                    
+                    <div class="card status-card">
+                        <h3>Last Check</h3>
+                        <p id="last-check-time">2 minutes ago</p>
+                    </div>
+                    
+                    <div class="card">
+                        <button class="button" onclick="checkRainNow()">🌤️ Check Rain Now</button>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>How it works</h3>
+                        <p>• Set your commute schedule in the Commute tab<br>
+                        • We'll check weather 30 minutes before your commute<br>
+                        • Get notifications: ✅ Clear weather or 🌧️ Rain alert<br>
+                        • Never get caught in the rain again!</p>
+                    </div>
+                    
+                    <div class="card" style="background: #FFF3E0; border-left: 4px solid #FF9800;">
+                        <h3 style="color: #E65100;">💡 Tips</h3>
+                        <p style="color: #BF360C;">• Make sure to set your home and work addresses<br>
+                        • Enable notifications for the best experience<br>
+                        • Check the Weather tab for detailed forecasts</p>
+                    </div>
+                </div>
+
+                <!-- Commute Settings Screen -->
+                <div id="commute-screen" class="screen">
+                    <div class="header">
+                        <h1>Commute Settings</h1>
+                        <p>Configure your daily commute schedule</p>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>Work Days</h3>
+                        <div class="day-selector">
+                            <div class="day-button active" onclick="toggleDay(this)">Mon</div>
+                            <div class="day-button active" onclick="toggleDay(this)">Tue</div>
+                            <div class="day-button active" onclick="toggleDay(this)">Wed</div>
+                            <div class="day-button active" onclick="toggleDay(this)">Thu</div>
+                            <div class="day-button active" onclick="toggleDay(this)">Fri</div>
+                            <div class="day-button" onclick="toggleDay(this)">Sat</div>
+                            <div class="day-button" onclick="toggleDay(this)">Sun</div>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>Morning Commute</h3>
+                        <div class="setting-row">
+                            <span>Enable</span>
+                            <div class="switch active" onclick="toggleSwitch(this)"></div>
+                        </div>
+                        <div class="setting-row">
+                            <span>Time</span>
+                            <div class="time-display" onclick="changeTime('morning')">8:00 AM</div>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>Evening Commute</h3>
+                        <div class="setting-row">
+                            <span>Enable</span>
+                            <div class="switch active" onclick="toggleSwitch(this)"></div>
+                        </div>
+                        <div class="setting-row">
+                            <span>Time</span>
+                            <div class="time-display" onclick="changeTime('evening')">5:30 PM</div>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>Addresses</h3>
+                        <div class="input-group">
+                            <label>Home Address</label>
+                            <input type="text" placeholder="Enter your home address" value="123 Main St, Barcelona">
+                        </div>
+                        <div class="input-group">
+                            <label>Work Address</label>
+                            <input type="text" placeholder="Enter your work address" value="456 Business Ave, Barcelona">
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <button class="button" onclick="saveSettings()">Save Settings</button>
+                        <button class="button secondary" onclick="scheduleChecks()">Schedule Rain Checks</button>
+                    </div>
+                </div>
+
+                <!-- Weather Screen -->
+                <div id="weather-screen" class="screen">
+                    <div class="header">
+                        <h1>Weather Forecast</h1>
+                        <p>Current conditions for your commute</p>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>Your Route</h3>
+                        <div class="route-info">
+                            <p><strong>From:</strong> 123 Main St, Barcelona</p>
+                            <p><strong>To:</strong> 456 Business Ave, Barcelona</p>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <button class="button" onclick="checkWeather()">🌤️ Check Weather Now</button>
+                    </div>
+                    
+                    <div id="weather-result" class="card" style="display: none;">
+                        <div class="weather-icon" id="weather-icon">☀️</div>
+                        <h3 id="weather-status">Clear Weather</h3>
+                        <p id="weather-message">No rain expected on your route!</p>
+                        <p style="color: #666; font-size: 12px;">Last updated: <span id="weather-time"></span></p>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>About Weather Checks</h3>
+                        <p>• Weather data is fetched from radar imagery<br>
+                        • Checks are performed 30 minutes before your commute<br>
+                        • Notifications are sent automatically<br>
+                        • Manual checks are always available here</p>
+                    </div>
+                </div>
+
+                <!-- Settings Screen -->
+                <div id="settings-screen" class="screen">
+                    <div class="header">
+                        <h1>Settings</h1>
+                        <p>Configure your MotoRain experience</p>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>Notifications</h3>
+                        <div class="setting-row">
+                            <span>Enable Rain Alerts</span>
+                            <div class="switch active" onclick="toggleSwitch(this)"></div>
+                        </div>
+                        <button class="button secondary" onclick="testNotification()">Test Notification</button>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>App Information</h3>
+                        <div class="setting-row">
+                            <span>Version</span>
+                            <span>1.0.0</span>
+                        </div>
+                        <div class="setting-row">
+                            <span>Build</span>
+                            <span>2024.1</span>
+                        </div>
+                        <div class="setting-row">
+                            <span>Last Updated</span>
+                            <span id="last-updated">Today</span>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>Actions</h3>
+                        <button class="button" onclick="saveSettings()">Save Settings</button>
+                        <button class="button warning" onclick="clearData()">Clear All Data</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="tab-bar">
+                <div class="tab-item active" onclick="showScreen('home-screen')">
+                    <div class="tab-icon">🏠</div>
+                    <div class="tab-label">Home</div>
+                </div>
+                <div class="tab-item" onclick="showScreen('weather-screen')">
+                    <div class="tab-icon">☁️</div>
+                    <div class="tab-label">Weather</div>
+                </div>
+                <div class="tab-item" onclick="showScreen('commute-screen')">
+                    <div class="tab-icon">⏰</div>
+                    <div class="tab-label">Commute</div>
+                </div>
+                <div class="tab-item" onclick="showScreen('settings-screen')">
+                    <div class="tab-icon">⚙️</div>
+                    <div class="tab-label">Settings</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="notification" class="notification"></div>
+
+    <script>
+        let currentScreen = 'home-screen';
+        let lastCheckTime = new Date();
+
+        function showScreen(screenId) {
+            // Hide all screens
+            document.querySelectorAll('.screen').forEach(screen => {
+                screen.classList.remove('active');
+            });
+            
+            // Remove active from all tabs
+            document.querySelectorAll('.tab-item').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Show selected screen
+            document.getElementById(screenId).classList.add('active');
+            
+            // Add active to clicked tab
+            event.currentTarget.classList.add('active');
+            
+            currentScreen = screenId;
+        }
+
+        function toggleDay(element) {
+            element.classList.toggle('active');
+        }
+
+        function toggleSwitch(element) {
+            element.classList.toggle('active');
+        }
+
+        function changeTime(type) {
+            const newTime = prompt(`Enter new ${type} commute time (HH:MM):`, type === 'morning' ? '08:00' : '17:30');
+            if (newTime) {
+                event.target.textContent = formatTime(newTime);
+            }
+        }
+
+        function formatTime(timeString) {
+            const [hours, minutes] = timeString.split(':');
+            const hour = parseInt(hours);
+            const ampm = hour >= 12 ? 'PM' : 'AM';
+            const displayHour = hour % 12 || 12;
+            return `${displayHour}:${minutes} ${ampm}`;
+        }
+
+        function checkRainNow() {
+            showNotification('🌤️ Checking weather conditions...', 'info');
+            setTimeout(() => {
+                showNotification('✅ Weather check completed!', 'success');
+                updateLastCheckTime();
+            }, 2000);
+        }
+
+        function checkWeather() {
+            showNotification('🌤️ Checking weather conditions...', 'info');
+            setTimeout(() => {
+                const weatherResult = document.getElementById('weather-result');
+                const weatherIcon = document.getElementById('weather-icon');
+                const weatherStatus = document.getElementById('weather-status');
+                const weatherMessage = document.getElementById('weather-message');
+                const weatherTime = document.getElementById('weather-time');
+                
+                weatherResult.style.display = 'block';
+                weatherIcon.textContent = '☀️';
+                weatherStatus.textContent = 'Clear Weather';
+                weatherStatus.style.color = '#4CAF50';
+                weatherMessage.textContent = 'No rain expected on your route!';
+                weatherTime.textContent = new Date().toLocaleTimeString();
+                
+                showNotification('✅ Weather check completed!', 'success');
+            }, 2000);
+        }
+
+        function saveSettings() {
+            showNotification('✅ Settings saved successfully!', 'success');
+        }
+
+        function scheduleChecks() {
+            showNotification('⏰ Rain checks scheduled for your commute times!', 'info');
+        }
+
+        function testNotification() {
+            showNotification('📱 This is a test notification!', 'info');
+        }
+
+        function clearData() {
+            if (confirm('This will clear all your settings and data. Are you sure?')) {
+                showNotification('🗑️ All data cleared successfully!', 'warning');
+            }
+        }
+
+        function updateLastCheckTime() {
+            lastCheckTime = new Date();
+            document.getElementById('last-check-time').textContent = 'Just now';
+        }
+
+        function showNotification(message, type = 'info') {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.className = `notification ${type}`;
+            notification.classList.add('show');
+            
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 3000);
+        }
+
+        // Simulation functions
+        function simulateRainAlert() {
+            showNotification('🌧️ Rain Alert! Morning commute: Rain expected on your route', 'rain');
+            
+            // Update weather screen if visible
+            if (currentScreen === 'weather-screen') {
+                const weatherResult = document.getElementById('weather-result');
+                const weatherIcon = document.getElementById('weather-icon');
+                const weatherStatus = document.getElementById('weather-status');
+                const weatherMessage = document.getElementById('weather-message');
+                
+                weatherResult.style.display = 'block';
+                weatherIcon.textContent = '🌧️';
+                weatherStatus.textContent = 'Rain Alert';
+                weatherStatus.style.color = '#F44336';
+                weatherMessage.textContent = 'Rain expected on your route!';
+            }
+        }
+
+        function simulateClearWeather() {
+            showNotification('✅ Clear Weather - Morning commute: No rain expected!', 'success');
+            
+            // Update weather screen if visible
+            if (currentScreen === 'weather-screen') {
+                const weatherResult = document.getElementById('weather-result');
+                const weatherIcon = document.getElementById('weather-icon');
+                const weatherStatus = document.getElementById('weather-status');
+                const weatherMessage = document.getElementById('weather-message');
+                
+                weatherResult.style.display = 'block';
+                weatherIcon.textContent = '☀️';
+                weatherStatus.textContent = 'Clear Weather';
+                weatherStatus.style.color = '#4CAF50';
+                weatherMessage.textContent = 'No rain expected on your route!';
+            }
+        }
+
+        function simulateNotification() {
+            showNotification('📱 MotoRain Test - This is a test notification!', 'info');
+        }
+
+        // Auto-update last check time
+        setInterval(() => {
+            const now = new Date();
+            const diffMinutes = Math.floor((now - lastCheckTime) / (1000 * 60));
+            
+            if (diffMinutes < 1) {
+                document.getElementById('last-check-time').textContent = 'Just now';
+            } else if (diffMinutes < 60) {
+                document.getElementById('last-check-time').textContent = `${diffMinutes} minutes ago`;
+            } else if (diffMinutes < 1440) {
+                document.getElementById('last-check-time').textContent = `${Math.floor(diffMinutes / 60)} hours ago`;
+            } else {
+                document.getElementById('last-check-time').textContent = lastCheckTime.toLocaleDateString();
+            }
+        }, 60000); // Update every minute
+    </script>
+</body>
+</html>
