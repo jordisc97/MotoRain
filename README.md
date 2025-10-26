@@ -241,23 +241,45 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - **Selenium** for web automation capabilities
 - **Bootstrap** for the responsive UI components
 
-## 📱 Apple App Store Deployment
+## 📱 Mobile App Deployment Options
 
-To deploy the mobile app to the Apple App Store:
+### Option 1: Developer Mode + Xcode Sideloading (Recommended for Personal Use)
 
-### Prerequisites
+**Best for**: Developers, hobbyists, or anyone wanting to run their own app on their personal iPhone.
+
+**Benefits**:
+- ✅ **Free**: Uses free Apple ID (no $99/year developer account needed)
+- ✅ **Personal Use**: Perfect for personal apps or learning
+- ✅ **Direct Control**: Build and run directly from Xcode
+- ✅ **No App Store**: Skip the App Store review process
+- ✅ **7-Day Limit**: App runs for 7 days before needing rebuild (free Apple ID limitation)
+
+**Quick Start**:
+1. **macOS + Xcode required**
+2. **Run setup script**: `./mobile-app/setup_sideloading.sh`
+3. **Connect iPhone** via USB
+4. **Build & Run** in Xcode
+5. **Enjoy your personal MotoRain app!**
+
+**Detailed Guide**: See `mobile-app/DEVELOPER_SIDELOADING_GUIDE.md`
+
+### Option 2: Apple App Store Deployment
+
+**Best for**: Public distribution, commercial apps, or apps for multiple users.
+
+**Prerequisites**:
 - **Apple Developer Account** ($99/year)
 - **macOS** with Xcode installed
 - **React Native CLI** and development environment
 
-### Steps
+**Steps**:
 1. **Set up React Native project** using the files in `mobile-app/` directory
 2. **Configure iOS settings** following `mobile-app/ios-config.md`
 3. **Set up Apple Push Notifications** with APNs certificates
 4. **Test on iOS Simulator** and physical devices
 5. **Submit to App Store Connect** for review
 
-### Key Features for App Store
+**Key Features for App Store**:
 - **Automatic rain alerts** during commute hours
 - **Background processing** for weather checks
 - **Push notifications** with rain/clear weather alerts
