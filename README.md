@@ -53,6 +53,17 @@ MotoRain-GitHub/
 │   ├── index.html            # Main HTML page
 │   ├── app.js               # Frontend JavaScript
 │   └── styles.css           # Custom CSS styles
+├── telegram-bot/
+│   ├── motorain_bot.py      # Telegram bot implementation
+│   ├── requirements.txt     # Bot dependencies
+│   ├── start_bot.sh         # macOS/Linux startup script
+│   ├── start_bot.bat        # Windows startup script
+│   └── DEPLOYMENT_GUIDE.md  # Bot deployment guide
+├── mobile-app/
+│   ├── src/                 # React Native source code
+│   ├── ios/                 # iOS configuration
+│   ├── setup_sideloading.sh # macOS sideloading setup
+│   └── DEVELOPER_SIDELOADING_GUIDE.md
 ├── chromedriver/
 │   ├── chromedriver.exe     # ChromeDriver executable
 │   └── LICENSE files        # ChromeDriver licenses
@@ -243,7 +254,27 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 📱 Mobile App Deployment Options
 
-### Option 1: Developer Mode + Xcode Sideloading (Recommended for Personal Use)
+### Option 1: Telegram Bot (Easiest Deployment)
+
+**Best for**: Anyone who wants the mobile app functionality without the complexity of mobile development.
+
+**Benefits**:
+- ✅ **Universal Access**: Works on any device with Telegram (iOS, Android, Desktop, Web)
+- ✅ **Easy Deployment**: No App Store approval or sideloading required
+- ✅ **Free**: No developer account fees or hosting costs
+- ✅ **Simple Setup**: Just run a Python script
+- ✅ **Cross-Platform**: Same experience on all devices
+- ✅ **Automatic Updates**: Update the bot without users needing to update apps
+
+**Quick Start**:
+1. **Create Telegram bot** with @BotFather
+2. **Run setup script**: `./telegram-bot/start_bot.sh` (macOS/Linux) or `telegram-bot/start_bot.bat` (Windows)
+3. **Start chatting** with your bot on Telegram
+4. **Set your addresses** and enjoy weather alerts!
+
+**Detailed Guide**: See `telegram-bot/DEPLOYMENT_GUIDE.md`
+
+### Option 2: Developer Mode + Xcode Sideloading (Recommended for Personal Use)
 
 **Best for**: Developers, hobbyists, or anyone wanting to run their own app on their personal iPhone.
 
