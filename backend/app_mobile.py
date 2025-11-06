@@ -156,7 +156,15 @@ async def check_rain(route: RouteIn):
             raise HTTPException(status_code=500, detail="Failed to process radar data")
         
         # Get the result for this user
-        will_rain = results.get(route.user, False)
+        result_data = results.get(route.user, {"will_rain": False, "rain_intensity": "None", "rain_ratio": 0})
+        
+        # Handle both old format (boolean) and new format (dict)
+        if isinstance(result_data, bool):
+            will_rain = result_data
+            rain_intensity = "Light" if will_rain else "None"
+        else:
+            will_rain = result_data.get("will_rain", False)
+            rain_intensity = result_data.get("rain_intensity", "None")
         
         # Read and encode the generated map image
         fname = os.path.join(tmpdir, f"{route.user}_map.png")
@@ -166,14 +174,22 @@ async def check_rain(route: RouteIn):
         with open(fname, "rb") as f:
             img_b64 = base64.b64encode(f.read()).decode("utf-8")
         
+        # Determine weather condition based on rain intensity
+        if rain_intensity == "Heavy":
+            weather_condition = "Heavy rain expected"
+        elif rain_intensity == "Light":
+            weather_condition = "Light rain expected"
+        else:
+            weather_condition = "No rain expected"
+        
         # Return the response
         return {
             "status": "ok",
             "user": route.user,
-            "vehicle": route.vehicle,
             "image_b64": img_b64,
             "will_rain": will_rain,
-            "weather_condition": "Rain expected" if will_rain else "No significant rain expected",
+            "rain_intensity": rain_intensity,
+            "weather_condition": weather_condition,
             "timestamp": datetime.now().isoformat()
         }
 
@@ -299,6 +315,44 @@ async def health_check():
         "timestamp": datetime.now().isoformat(),
         "radar_data_available": radar_data_scraped
     }
+
+@app.get("/radar_map/")
+async def get_radar_map():
+    """Get the current radar map without checking a route."""
+    try:
+        # Check if we have radar data
+        if not radar_data_scraped:
+            raise HTTPException(status_code=503, detail="Radar data not available yet. Please try again in a moment.")
+        
+        # Create composite image without routes
+        if not radar_checker.radar_data:
+            raise HTTPException(status_code=503, detail="Radar data not available yet. Please try again in a moment.")
+        
+        # Create composite image
+        composite, times = radar_checker.create_composite_image()
+        
+        if composite is None:
+            raise HTTPException(status_code=500, detail="Failed to create radar composite")
+        
+        # Convert image to base64
+        import io
+        img_buffer = io.BytesIO()
+        composite.save(img_buffer, format='PNG')
+        img_b64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
+        
+        timeframe = f"{times[0]} to {times[-1]}" if times else "Unknown"
+        
+        return {
+            "status": "ok",
+            "image_b64": img_b64,
+            "timeframe": timeframe,
+            "timestamp": datetime.now().isoformat()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting radar map: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 @app.on_event("shutdown")
 def shutdown_event():

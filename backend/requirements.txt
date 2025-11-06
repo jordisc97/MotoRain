@@ -6,3 +6,4 @@ numpy
 selenium
 python-multipart
 webdriver-manager
+apscheduler

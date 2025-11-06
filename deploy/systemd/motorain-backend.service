@@ -1,0 +1,18 @@
+[Unit]
+Description=MotoRain Backend API Service
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/motorain/backend
+Environment="PATH=/opt/motorain/venv/bin"
+ExecStart=/opt/motorain/venv/bin/python -m uvicorn app_mobile:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+

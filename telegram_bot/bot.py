@@ -4,8 +4,10 @@ import io
 import asyncio
 import logging
 from typing import Dict
-from datetime import datetime
+from datetime import datetime, timedelta
 import requests
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -25,7 +27,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot Version
-BOT_VERSION = "0.0.1"
+BOT_VERSION = "0.0.2"
 
 # Telegram Bot Token
 TELEGRAM_TOKEN = "8477567862:AAH2l1W3WztMZI5cbSY5W0oK0r4X7kRZKcg"
@@ -34,13 +36,22 @@ TELEGRAM_TOKEN = "8477567862:AAH2l1W3WztMZI5cbSY5W0oK0r4X7kRZKcg"
 BACKEND_API_URL = "http://localhost:8000/check_rain/"
 
 # Conversation states
-(USER_NAME, HOME_ADDRESS, WORK_ADDRESS, VEHICLE_TYPE) = range(4)
+(USER_NAME, HOME_ADDRESS, WORK_ADDRESS) = range(3)
 
 # Store user data temporarily
 user_data: Dict[int, Dict] = {}
 
 # Store saved routes for users (in production, use a database)
 saved_routes: Dict[int, Dict] = {}
+
+# Store scheduled checks for users (in production, use a database)
+scheduled_checks: Dict[int, Dict] = {}
+
+# Scheduler for automatic checks
+scheduler = AsyncIOScheduler()
+
+# Store application instance for scheduled checks
+app_instance = None
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -73,10 +84,20 @@ async def get_user_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     user_name = update.message.text.strip()
     user_data[user_id]['user'] = user_name
     
+    # Add action buttons
+    keyboard = [
+        [
+            InlineKeyboardButton("🏠 Continue", callback_data="continue_name"),
+            InlineKeyboardButton("❌ Cancel", callback_data="cancel_conv"),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
     await update.message.reply_text(
         f"Nice to meet you, {user_name}! 🏠\n\n"
         "Now, please provide your home address:\n"
-        "(e.g., 'Barcelona, Spain' or 'Carrer Example 123, Barcelona')"
+        "(e.g., 'Barcelona, Spain' or 'Carrer Example 123, Barcelona')",
+        reply_markup=reply_markup
     )
     return HOME_ADDRESS
 
@@ -87,58 +108,44 @@ async def get_home_address(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     home_address = update.message.text.strip()
     user_data[user_id]['home'] = home_address
     
-    await update.message.reply_text(
-        f"Home address saved: {home_address} ✅\n\n"
-        "Now, please provide your work address:\n"
-        "(e.g., 'Terrassa, Spain' or 'Carrer Work 456, Terrassa')"
-    )
-    return WORK_ADDRESS
-
-
-async def get_work_address(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Store work address and ask for vehicle type."""
-    user_id = update.effective_user.id
-    work_address = update.message.text.strip()
-    user_data[user_id]['work'] = work_address
-    
+    # Add action buttons
     keyboard = [
         [
-            InlineKeyboardButton("🚴 Bike", callback_data="bike"),
-            InlineKeyboardButton("🏍️ Motorbike", callback_data="motorbike"),
+            InlineKeyboardButton("🏢 Continue", callback_data="continue_home"),
+            InlineKeyboardButton("❌ Cancel", callback_data="cancel_conv"),
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
-        f"Work address saved: {work_address} ✅\n\n"
-        "What vehicle will you use for your commute?",
+        f"Home address saved: {home_address} ✅\n\n"
+        "Now, please provide your work address:\n"
+        "(e.g., 'Terrassa, Spain' or 'Carrer Work 456, Terrassa')",
         reply_markup=reply_markup
     )
-    return VEHICLE_TYPE
+    return WORK_ADDRESS
 
 
-async def get_vehicle_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Store vehicle type and process the rain check."""
-    query = update.callback_query
-    await query.answer()
-    
+async def get_work_address(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Store work address and process the rain check."""
     user_id = update.effective_user.id
-    vehicle_type = query.data
-    user_data[user_id]['vehicle'] = vehicle_type
+    work_address = update.message.text.strip()
+    user_data[user_id]['work'] = work_address
     
     # Show processing message
-    await query.edit_message_text(
+    await update.message.reply_text(
+        f"Work address saved: {work_address} ✅\n\n"
         "⏳ Processing your request...\n"
         "Checking radar data and analyzing your route..."
     )
     
-    # Call backend API
+    # Process the rain check directly (no vehicle type needed)
     try:
         result = await check_rain_api(
             user=user_data[user_id]['user'],
             home=user_data[user_id]['home'],
             work=user_data[user_id]['work'],
-            vehicle=vehicle_type
+            vehicle="bike"  # Default, not used anymore
         )
         
         if result['status'] == 'ok':
@@ -147,24 +154,39 @@ async def get_vehicle_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             image_file = io.BytesIO(image_data)
             image_file.name = 'radar_map.png'
             
-            # Prepare response message
+            # Prepare response message with rain intensity
             will_rain = result['will_rain']
+            rain_intensity = result.get('rain_intensity', 'None')
             weather_condition = result['weather_condition']
             
-            emoji = "🌧️" if will_rain else "☀️"
-            status_text = "⚠️ RAIN EXPECTED" if will_rain else "✅ NO RAIN EXPECTED"
+            # Determine emoji and status based on rain intensity
+            if rain_intensity == "Heavy":
+                emoji = "🌧️"
+                status_emoji = "⚠️"
+                status_text = "HEAVY RAIN EXPECTED"
+                recommendation = "⚠️ Heavy rain expected! Consider taking alternative transportation or postpone your trip."
+            elif rain_intensity == "Light":
+                emoji = "🌦️"
+                status_emoji = "⚠️"
+                status_text = "LIGHT RAIN EXPECTED"
+                recommendation = "🌦️ Light rain expected. Bring rain gear and ride carefully."
+            else:
+                emoji = "☀️"
+                status_emoji = "✅"
+                status_text = "NO RAIN EXPECTED"
+                recommendation = "☀️ No rain expected. Safe to ride! Enjoy your commute."
             
             message = (
-                f"{emoji} <b>Rain Check Results</b>\n\n"
-                f"<b>Status:</b> {status_text}\n"
-                f"<b>Condition:</b> {weather_condition}\n"
-                f"<b>Route:</b> {user_data[user_id]['home']} → {user_data[user_id]['work']}\n"
-                f"<b>Vehicle:</b> {'🚴 Bike' if vehicle_type == 'bike' else '🏍️ Motorbike'}\n\n"
-                f"Here's the radar map showing your route:"
+                f"{emoji} <b>Weather Forecast for Your Commute</b>\n\n"
+                f"{status_emoji} <b>{status_text}</b>\n"
+                f"📊 {weather_condition}\n\n"
+                f"📍 <b>Route:</b> {user_data[user_id]['home']} → {user_data[user_id]['work']}\n\n"
+                f"💡 <b>Recommendation:</b> {recommendation}\n\n"
+                f"🗺️ Below is the radar map showing weather conditions along your route:"
             )
             
             # Send image with caption
-            await query.message.reply_photo(
+            await update.message.reply_photo(
                 photo=image_file,
                 caption=message,
                 parse_mode='HTML'
@@ -183,7 +205,7 @@ async def get_vehicle_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            await query.message.reply_text(
+            await update.message.reply_text(
                 "What would you like to do next?",
                 reply_markup=reply_markup
             )
@@ -192,7 +214,7 @@ async def get_vehicle_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             # Don't delete it yet - keep it for quick actions
             
         else:
-            await query.edit_message_text(
+            await update.message.reply_text(
                 "❌ Error: Could not process your request.\n"
                 "Please try again later."
             )
@@ -202,7 +224,7 @@ async def get_vehicle_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             
     except Exception as e:
         logger.error(f"Error processing rain check: {str(e)}")
-        await query.edit_message_text(
+        await update.message.reply_text(
             f"❌ An error occurred: {str(e)}\n\n"
             "Please try again or contact support."
         )
@@ -211,6 +233,8 @@ async def get_vehicle_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             del user_data[user_id]
     
     return ConversationHandler.END
+
+
 
 
 async def check_rain_api(user: str, home: str, work: str, vehicle: str) -> Dict:
@@ -259,6 +283,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "This bot helps you check if it will rain during your commute.\n\n"
         "<b>Commands:</b>\n"
         "/start - Start a new rain check\n"
+        "/weather - Get current radar map (no route check)\n"
         "/routes - View your saved routes\n"
         "/cancel - Cancel the current operation\n"
         "/help - Show this help message\n"
@@ -267,8 +292,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "1. Provide your name\n"
         "2. Enter your home address\n"
         "3. Enter your work address\n"
-        "4. Select your vehicle type (bike or motorbike)\n"
-        "5. Receive a radar map and rain prediction\n\n"
+        "4. Receive a radar map and rain prediction\n\n"
         "<b>After getting results:</b>\n"
         "🔄 <b>Check Again</b> - Re-check weather with same route\n"
         "💾 <b>Save Route</b> - Save route for quick access\n"
@@ -277,6 +301,54 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "The bot analyzes real-time radar data to predict rain along your route."
     )
     await update.message.reply_text(help_text, parse_mode='HTML')
+
+
+async def weather_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Get current radar map without checking a route."""
+    try:
+        await update.message.reply_text("⏳ Fetching current radar map...")
+        
+        # Call backend API to get radar map
+        radar_map_url = BACKEND_API_URL.replace('/check_rain/', '/radar_map/')
+        
+        def _make_request():
+            """Synchronous function to make the API request."""
+            response = requests.get(radar_map_url, timeout=60)
+            response.raise_for_status()
+            return response.json()
+        
+        # Run the synchronous request in a thread pool to avoid blocking
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, _make_request)
+        
+        if result['status'] == 'ok':
+            # Decode the image
+            image_data = base64.b64decode(result['image_b64'])
+            image_file = io.BytesIO(image_data)
+            image_file.name = 'radar_map.png'
+            
+            timeframe = result.get('timeframe', 'Current')
+            
+            message = (
+                f"🗺️ <b>Current Radar Map</b>\n\n"
+                f"📊 <b>Timeframe:</b> {timeframe}\n\n"
+                f"This is the current weather radar map. You can use it to check weather conditions in your area.\n\n"
+                f"Use /start to check weather for a specific route."
+            )
+            
+            await update.message.reply_photo(
+                photo=image_file,
+                caption=message,
+                parse_mode='HTML'
+            )
+        else:
+            await update.message.reply_text("❌ Error: Could not fetch radar map.")
+    except Exception as e:
+        logger.error(f"Error in weather command: {str(e)}")
+        await update.message.reply_text(
+            f"❌ An error occurred: {str(e)}\n\n"
+            "Please try again later."
+        )
 
 
 async def routes_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -288,8 +360,7 @@ async def routes_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard_buttons = []
         
         for idx, route in enumerate(saved_routes[user_id][:5]):  # Show max 5 routes
-            routes_text += f"{idx + 1}. {route['name']}\n"
-            routes_text += f"   Vehicle: {'🚴 Bike' if route['vehicle'] == 'bike' else '🏍️ Motorbike'}\n\n"
+            routes_text += f"{idx + 1}. {route['name']}\n\n"
             keyboard_buttons.append([
                 InlineKeyboardButton(f"Check Route {idx + 1}", callback_data=f"use_route_{idx}")
             ])
@@ -321,17 +392,31 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     action = query.data
     
+    if action == "continue_name" or action == "continue_home":
+        # Just acknowledge the continue button - user should type their response
+        await query.answer("Please type your response in the chat")
+        return
+    
+    if action == "cancel_conv":
+        # Cancel the conversation
+        if user_id in user_data:
+            del user_data[user_id]
+        await query.edit_message_text(
+            "❌ Operation cancelled.\n\n"
+            "Use /start to begin again."
+        )
+        return ConversationHandler.END
+    
     if action == "check_again":
         # Re-check with the same route data
-        if user_id in user_data and all(key in user_data[user_id] for key in ['user', 'home', 'work', 'vehicle']):
+        if user_id in user_data and all(key in user_data[user_id] for key in ['user', 'home', 'work']):
             await query.edit_message_text("⏳ Checking weather again...")
             
             try:
                 result = await check_rain_api(
                     user=user_data[user_id]['user'],
                     home=user_data[user_id]['home'],
-                    work=user_data[user_id]['work'],
-                    vehicle=user_data[user_id]['vehicle']
+                    work=user_data[user_id]['work']
                 )
                 
                 if result['status'] == 'ok':
@@ -340,17 +425,33 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     image_file.name = 'radar_map.png'
                     
                     will_rain = result['will_rain']
+                    rain_intensity = result.get('rain_intensity', 'None')
                     weather_condition = result['weather_condition']
-                    emoji = "🌧️" if will_rain else "☀️"
-                    status_text = "⚠️ RAIN EXPECTED" if will_rain else "✅ NO RAIN EXPECTED"
+                    
+                    # Determine emoji and status based on rain intensity
+                    if rain_intensity == "Heavy":
+                        emoji = "🌧️"
+                        status_emoji = "⚠️"
+                        status_text = "HEAVY RAIN EXPECTED"
+                        recommendation = "⚠️ Heavy rain expected! Consider taking alternative transportation or postpone your trip."
+                    elif rain_intensity == "Light":
+                        emoji = "🌦️"
+                        status_emoji = "⚠️"
+                        status_text = "LIGHT RAIN EXPECTED"
+                        recommendation = "🌦️ Light rain expected. Bring rain gear and ride carefully."
+                    else:
+                        emoji = "☀️"
+                        status_emoji = "✅"
+                        status_text = "NO RAIN EXPECTED"
+                        recommendation = "☀️ No rain expected. Safe to ride! Enjoy your commute."
                     
                     message = (
-                        f"{emoji} <b>Rain Check Results (Updated)</b>\n\n"
-                        f"<b>Status:</b> {status_text}\n"
-                        f"<b>Condition:</b> {weather_condition}\n"
-                        f"<b>Route:</b> {user_data[user_id]['home']} → {user_data[user_id]['work']}\n"
-                        f"<b>Vehicle:</b> {'🚴 Bike' if user_data[user_id]['vehicle'] == 'bike' else '🏍️ Motorbike'}\n\n"
-                        f"Here's the updated radar map:"
+                        f"{emoji} <b>Weather Forecast (Updated)</b>\n\n"
+                        f"{status_emoji} <b>{status_text}</b>\n"
+                        f"📊 {weather_condition}\n\n"
+                        f"📍 <b>Route:</b> {user_data[user_id]['home']} → {user_data[user_id]['work']}\n\n"
+                        f"💡 <b>Recommendation:</b> {recommendation}\n\n"
+                        f"🗺️ Updated radar map showing current weather conditions:"
                     )
                     
                     await query.message.reply_photo(
@@ -382,7 +483,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif action == "save_route":
         # Save the current route
-        if user_id in user_data and all(key in user_data[user_id] for key in ['user', 'home', 'work', 'vehicle']):
+        if user_id in user_data and all(key in user_data[user_id] for key in ['user', 'home', 'work']):
             if user_id not in saved_routes:
                 saved_routes[user_id] = []
             
@@ -391,7 +492,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'name': route_name,
                 'home': user_data[user_id]['home'],
                 'work': user_data[user_id]['work'],
-                'vehicle': user_data[user_id]['vehicle'],
                 'saved_at': datetime.now().isoformat()
             }
             
@@ -401,8 +501,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 saved_routes[user_id].append(route_data)
                 await query.edit_message_text(
                     f"✅ Route saved!\n\n"
-                    f"<b>Route:</b> {route_name}\n"
-                    f"<b>Vehicle:</b> {'🚴 Bike' if route_data['vehicle'] == 'bike' else '🏍️ Motorbike'}\n\n"
+                    f"<b>Route:</b> {route_name}\n\n"
                     f"You can now use /routes to quickly check this route again.",
                     parse_mode='HTML'
                 )
@@ -418,8 +517,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard_buttons = []
             
             for idx, route in enumerate(saved_routes[user_id][:5]):  # Show max 5 routes
-                routes_text += f"{idx + 1}. {route['name']}\n"
-                routes_text += f"   Vehicle: {'🚴 Bike' if route['vehicle'] == 'bike' else '🏍️ Motorbike'}\n\n"
+                routes_text += f"{idx + 1}. {route['name']}\n\n"
                 keyboard_buttons.append([
                     InlineKeyboardButton(f"Check {idx + 1}", callback_data=f"use_route_{idx}")
                 ])
@@ -432,15 +530,128 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("📋 You don't have any saved routes yet.\n\nUse 'Save Route' after a weather check to save it for quick access.")
     
     elif action == "schedule":
-        # Schedule automatic checks (simplified version)
+        # Schedule automatic checks
+        if user_id in user_data and all(key in user_data[user_id] for key in ['user', 'home', 'work']):
+            # Show schedule options
+            keyboard = [
+                [
+                    InlineKeyboardButton("🧪 Test (15 min)", callback_data="schedule_test"),
+                    InlineKeyboardButton("📅 Daily Schedule", callback_data="schedule_daily"),
+                ],
+                [
+                    InlineKeyboardButton("📋 My Schedules", callback_data="my_schedules"),
+                    InlineKeyboardButton("🔙 Back", callback_data="back_to_main"),
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                "⚙️ <b>Schedule Automatic Checks</b>\n\n"
+                "Choose an option:\n\n"
+                "🧪 <b>Test (15 min)</b> - Test mode: Check every 15 minutes\n"
+                "📅 <b>Daily Schedule</b> - Set up daily commute checks\n"
+                "📋 <b>My Schedules</b> - View your active schedules",
+                parse_mode='HTML',
+                reply_markup=reply_markup
+            )
+        else:
+            await query.edit_message_text(
+                "❌ No route data found. Please use /start to create a check first."
+            )
+    
+    elif action == "schedule_test":
+        # Schedule test checks every 15 minutes
+        if user_id in user_data and all(key in user_data[user_id] for key in ['user', 'home', 'work']):
+            # Store schedule
+            schedule_id = f"{user_id}_test"
+            scheduled_checks[user_id] = {
+                'schedule_id': schedule_id,
+                'type': 'test',
+                'interval_minutes': 15,
+                'user': user_data[user_id]['user'],
+                'home': user_data[user_id]['home'],
+                'work': user_data[user_id]['work'],
+                'created_at': datetime.now().isoformat(),
+                'active': True
+            }
+            
+            # Schedule the job
+            scheduler.add_job(
+                perform_scheduled_check,
+                trigger=IntervalTrigger(minutes=15),
+                id=schedule_id,
+                args=[user_id],
+                replace_existing=True
+            )
+            
+            await query.edit_message_text(
+                "✅ <b>Test Schedule Activated!</b>\n\n"
+                "🧪 The bot will now check your route every 15 minutes.\n\n"
+                f"📍 <b>Route:</b> {user_data[user_id]['home']} → {user_data[user_id]['work']}\n\n"
+                "You'll receive a notification each time a check is performed.\n\n"
+                "Use '📋 My Schedules' to view or stop this schedule.",
+                parse_mode='HTML'
+            )
+        else:
+            await query.edit_message_text("❌ No route data found. Please use /start first.")
+    
+    elif action == "my_schedules":
+        # Show user's scheduled checks
+        if user_id in scheduled_checks:
+            schedule = scheduled_checks[user_id]
+            schedule_text = (
+                "📋 <b>Your Active Schedules:</b>\n\n"
+                f"🧪 <b>Type:</b> {schedule['type'].title()}\n"
+                f"⏰ <b>Interval:</b> Every {schedule.get('interval_minutes', 15)} minutes\n"
+                f"📍 <b>Route:</b> {schedule['home']} → {schedule['work']}\n"
+                f"🕐 <b>Created:</b> {datetime.fromisoformat(schedule['created_at']).strftime('%Y-%m-%d %H:%M')}\n"
+                f"✅ <b>Status:</b> {'Active' if schedule.get('active', True) else 'Inactive'}\n\n"
+            )
+            
+            keyboard = [
+                [InlineKeyboardButton("🛑 Stop Schedule", callback_data="stop_schedule")],
+                [InlineKeyboardButton("🔙 Back", callback_data="back_to_main")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(schedule_text, parse_mode='HTML', reply_markup=reply_markup)
+        else:
+            await query.edit_message_text(
+                "📋 You don't have any active schedules.\n\n"
+                "Use '⚙️ Schedule Checks' to set up automatic checks."
+            )
+    
+    elif action == "stop_schedule":
+        # Stop scheduled checks
+        if user_id in scheduled_checks:
+            schedule = scheduled_checks[user_id]
+            schedule_id = schedule.get('schedule_id', f"{user_id}_test")
+            
+            # Remove job from scheduler
+            try:
+                scheduler.remove_job(schedule_id)
+            except Exception as e:
+                logger.error(f"Error removing job: {str(e)}")
+            
+            # Mark as inactive
+            scheduled_checks[user_id]['active'] = False
+            del scheduled_checks[user_id]
+            
+            await query.edit_message_text(
+                "🛑 <b>Schedule Stopped</b>\n\n"
+                "Automatic checks have been disabled.\n\n"
+                "You can set up a new schedule anytime using '⚙️ Schedule Checks'.",
+                parse_mode='HTML'
+            )
+        else:
+            await query.edit_message_text("❌ No active schedule found.")
+    
+    elif action == "schedule_daily":
+        # Daily schedule (coming soon)
         await query.edit_message_text(
-            "⚙️ <b>Schedule Automatic Checks</b>\n\n"
-            "This feature will automatically check the weather before your commute times.\n\n"
-            "To set up scheduled checks, you'll need to:\n"
-            "1. Set your commute times\n"
-            "2. Choose which days to check\n"
-            "3. Enable notifications\n\n"
-            "This feature is coming soon! For now, you can manually check using /start.",
+            "📅 <b>Daily Schedule</b>\n\n"
+            "This feature is coming soon!\n\n"
+            "For now, use '🧪 Test (15 min)' to test automatic checks.",
             parse_mode='HTML'
         )
     
@@ -453,8 +664,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_data[user_id] = {
                 'user': update.effective_user.first_name or "User",
                 'home': route['home'],
-                'work': route['work'],
-                'vehicle': route['vehicle']
+                'work': route['work']
             }
             
             await query.edit_message_text(f"⏳ Checking weather for saved route: {route['name']}...")
@@ -464,8 +674,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 result = await check_rain_api(
                     user=user_data[user_id]['user'],
                     home=user_data[user_id]['home'],
-                    work=user_data[user_id]['work'],
-                    vehicle=user_data[user_id]['vehicle']
+                    work=user_data[user_id]['work']
                 )
                 
                 if result['status'] == 'ok':
@@ -474,17 +683,33 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     image_file.name = 'radar_map.png'
                     
                     will_rain = result['will_rain']
+                    rain_intensity = result.get('rain_intensity', 'None')
                     weather_condition = result['weather_condition']
-                    emoji = "🌧️" if will_rain else "☀️"
-                    status_text = "⚠️ RAIN EXPECTED" if will_rain else "✅ NO RAIN EXPECTED"
+                    
+                    # Determine emoji and status based on rain intensity
+                    if rain_intensity == "Heavy":
+                        emoji = "🌧️"
+                        status_emoji = "⚠️"
+                        status_text = "HEAVY RAIN EXPECTED"
+                        recommendation = "⚠️ Heavy rain expected! Consider taking alternative transportation or postpone your trip."
+                    elif rain_intensity == "Light":
+                        emoji = "🌦️"
+                        status_emoji = "⚠️"
+                        status_text = "LIGHT RAIN EXPECTED"
+                        recommendation = "🌦️ Light rain expected. Bring rain gear and ride carefully."
+                    else:
+                        emoji = "☀️"
+                        status_emoji = "✅"
+                        status_text = "NO RAIN EXPECTED"
+                        recommendation = "☀️ No rain expected. Safe to ride! Enjoy your commute."
                     
                     message = (
-                        f"{emoji} <b>Rain Check Results</b>\n\n"
-                        f"<b>Status:</b> {status_text}\n"
-                        f"<b>Condition:</b> {weather_condition}\n"
-                        f"<b>Route:</b> {route['name']}\n"
-                        f"<b>Vehicle:</b> {'🚴 Bike' if route['vehicle'] == 'bike' else '🏍️ Motorbike'}\n\n"
-                        f"Here's the radar map:"
+                        f"{emoji} <b>Weather Forecast for Your Commute</b>\n\n"
+                        f"{status_emoji} <b>{status_text}</b>\n"
+                        f"📊 {weather_condition}\n\n"
+                        f"📍 <b>Route:</b> {route['name']}\n\n"
+                        f"💡 <b>Recommendation:</b> {recommendation}\n\n"
+                        f"🗺️ Radar map showing weather conditions along your route:"
                     )
                     
                     await query.message.reply_photo(
@@ -555,24 +780,30 @@ def main():
         application.add_handler(CommandHandler('help', help_command))
         application.add_handler(CommandHandler('test', test_command))
         application.add_handler(CommandHandler('routes', routes_command))
+        application.add_handler(CommandHandler('weather', weather_command))
         
-        # Add callback query handler for action buttons
-        application.add_handler(CallbackQueryHandler(handle_callback, pattern="^(check_again|save_route|schedule|my_routes|use_route_|back_to_main)"))
-        
-        # Add conversation handler
+        # Add conversation handler FIRST (before callback handler to avoid conflicts)
         conv_handler = ConversationHandler(
             entry_points=[CommandHandler('start', start)],
             states={
                 USER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_user_name)],
                 HOME_ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_home_address)],
                 WORK_ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_work_address)],
-                VEHICLE_TYPE: [CallbackQueryHandler(get_vehicle_type)],
             },
             fallbacks=[CommandHandler('cancel', cancel)],
         )
-        
-        # Add conversation handler
         application.add_handler(conv_handler)
+        
+        # Add callback query handler for action buttons AFTER conversation handler
+        application.add_handler(CallbackQueryHandler(handle_callback, pattern="^(check_again|save_route|schedule|my_routes|use_route_|back_to_main|continue_name|continue_home|cancel_conv|schedule_test|schedule_daily|my_schedules|stop_schedule)"))
+        
+        # Store application reference for scheduled checks
+        global app_instance
+        app_instance = application
+        
+        # Start scheduler
+        scheduler.start()
+        logger.info("Scheduler started for automatic checks")
         
         # Start the bot
         logger.info(f"Starting MotoRain Telegram Bot v{BOT_VERSION}...")

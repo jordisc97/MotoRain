@@ -1,0 +1,19 @@
+[Unit]
+Description=MotoRain Telegram Bot Service
+After=network.target motorain-backend.service
+Requires=motorain-backend.service
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/motorain/telegram_bot
+Environment="PATH=/opt/motorain/venv/bin"
+ExecStart=/opt/motorain/venv/bin/python bot.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+

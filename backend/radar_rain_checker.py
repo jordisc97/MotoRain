@@ -263,14 +263,22 @@ class RadarRainChecker:
                 rain_intensity = "Heavy" if rain_ratio > 0.3 else "Light" if rain_ratio > 0.1 else "None"
                 
                 print(f"{rain_intensity} rain detected for {user} ({rain_pixels}/{valid_pixels} pixels, {rain_ratio:.1%})")
-                results[user] = rain_detected
+                results[user] = {
+                    "will_rain": rain_detected,
+                    "rain_intensity": rain_intensity,
+                    "rain_ratio": rain_ratio
+                }
 
                 # Annotate and save the map
                 self._save_annotated_map(user, x_home, y_home, x_work, y_work, timeframe, output_dir, rain_detected, rain_intensity)
                 
             except Exception as e:
                 print(f"Error processing route for {route.get('user', 'unknown')}: {str(e)}")
-                results[route.get('user', 'unknown')] = False
+                results[route.get('user', 'unknown')] = {
+                    "will_rain": False,
+                    "rain_intensity": "None",
+                    "rain_ratio": 0
+                }
 
         return results
         
