@@ -81,20 +81,58 @@ class NotificationRequest(BaseModel):
     notification_type: str  # "rain_alert" or "clear_weather"
     push_token: Optional[str] = None
 
+async def refresh_radar_data():
+    """Refresh radar data by scraping new frames."""
+    global radar_data_scraped
+    try:
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting radar data refresh...")
+        
+        # Run synchronous scraping functions in executor to avoid blocking
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, radar_checker.open_radar_page)
+        await loop.run_in_executor(None, radar_checker.scrape_frames)
+        
+        radar_data_scraped = True
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Radar data refreshed successfully")
+    except Exception as e:
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error refreshing radar data: {str(e)}")
+        # Don't raise, allow the server to continue even if refresh fails
+
+async def periodic_radar_refresh():
+    """Periodically refresh radar data every 10 minutes."""
+    while True:
+        try:
+            await asyncio.sleep(600)  # Wait 10 minutes (600 seconds)
+            await refresh_radar_data()
+        except Exception as e:
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error in periodic refresh: {str(e)}")
+            # Continue the loop even if there's an error
+            await asyncio.sleep(60)  # Wait 1 minute before retrying
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize the radar checker when the app starts."""
     try:
-        print("Opening radar page...")
-        radar_checker.open_radar_page()
-        print("Scraping radar data...")
-        radar_checker.scrape_frames()
-        print("Radar data scraped successfully")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Opening radar page...")
+        
+        # Run synchronous scraping functions in executor to avoid blocking
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, radar_checker.open_radar_page)
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Scraping radar data...")
+        await loop.run_in_executor(None, radar_checker.scrape_frames)
+        
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Radar data scraped successfully")
         global radar_data_scraped
         radar_data_scraped = True
+        
+        # Start the periodic refresh task
+        asyncio.create_task(periodic_radar_refresh())
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Started periodic radar refresh (every 10 minutes)")
     except Exception as e:
-        print(f"Error initializing radar checker: {str(e)}")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error initializing radar checker: {str(e)}")
         # Don't raise, allow the server to start even if radar initialization fails
+        # Still start the periodic refresh task
+        asyncio.create_task(periodic_radar_refresh())
 
 @app.post("/check_rain/")
 async def check_rain(route: RouteIn):
