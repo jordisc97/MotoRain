@@ -13,6 +13,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
 
 
 class RadarRainChecker:
@@ -48,7 +49,13 @@ class RadarRainChecker:
         if headless:
             chrome_options.add_argument("--headless")
         chrome_options.add_argument("--window-size=1920,1080")
-        service = Service(chromedriver_path)
+        # Use webdriver-manager to automatically download the correct ChromeDriver version
+        # If chromedriver_path is provided and exists, use it; otherwise use webdriver-manager
+        if chromedriver_path and os.path.exists(chromedriver_path):
+            service = Service(chromedriver_path)
+        else:
+            # Automatically download and use the correct ChromeDriver version
+            service = Service(ChromeDriverManager().install())
         self.driver = webdriver.Chrome(service=service, options=chrome_options)
 
         # Font setup for titles and addresses

@@ -12,7 +12,9 @@ from radar_rain_checker import RadarRainChecker
 import json
 
 # ------- Configure -------
-CHROMEDRIVER_PATH = r"../chromedriver/chromedriver.exe"
+# ChromeDriver path - set to None to use webdriver-manager (recommended)
+# or provide a path to a specific ChromeDriver executable
+CHROMEDRIVER_PATH = None  # Will use webdriver-manager to auto-download correct version
 MAP_BOUNDS = (40.65, -0.92, 42.95, 4.55)
 # -------------------------
 
