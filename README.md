@@ -10,6 +10,7 @@ A real-time weather analysis application that helps cyclists and motorcyclists d
 - **Smart Recommendations**: Provides weather-based recommendations for your journey
 - **Modern Web Interface**: Clean, responsive frontend with Bootstrap styling
 - **📱 Mobile App Simulation**: Interactive iOS app preview with modern Revolut-inspired design
+- **🤖 Telegram Bot**: Interactive bot for quick rain checks on the go
 
 ## 📱 Mobile App Preview
 
@@ -46,7 +47,8 @@ Try the mobile app simulation: Open `frontend/mobile-app-simulation.html` in you
 ```
 MotoRain-GitHub/
 ├── backend/
-│   ├── app.py                 # FastAPI application
+│   ├── app.py                 # FastAPI application for web and mobile
+│   ├── app_mobile.py            # FastAPI application for mobile app
 │   ├── radar_rain_checker.py  # Core weather analysis logic
 │   └── requirements.txt       # Python dependencies
 ├── frontend/
@@ -60,6 +62,12 @@ MotoRain-GitHub/
 │   ├── start-backend.bat    # Windows backend startup script
 │   ├── start-frontend.bat   # Windows frontend startup script
 │   └── start-all.bat       # Start both services
+├── telegram_bot/
+│   ├── bot.py                 # Main Telegram bot application
+│   ├── api.py                 # Handles communication with the backend
+│   ├── constants.py           # Bot constants and settings
+│   ├── .env.example           # Example environment file for Telegram token
+│   └── requirements.txt       # Python dependencies for the bot
 ├── docs/
 │   └── API.md              # API documentation
 └── README.md               # This file
@@ -117,6 +125,40 @@ MotoRain-GitHub/
 
 3. **Access the application:**
    Open your browser and go to `http://localhost:3000`
+
+### 🤖 Telegram Bot Setup
+
+The bot allows you to check for rain on your commute directly from Telegram.
+
+1.  **Navigate to the bot directory:**
+    ```bash
+    cd telegram_bot
+    ```
+
+2.  **Create a virtual environment and activate it:**
+    ```bash
+    python -m venv venv
+    venv\Scripts\activate  # On Windows
+    # source venv/bin/activate  # On macOS/Linux
+    ```
+
+3.  **Install dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+4.  **Set up your Telegram Token:**
+    -   Rename `.env.example` to `.env`.
+    -   Open the `.env` file and add your Telegram bot token:
+        ```
+        TELEGRAM_TOKEN="YOUR_TELEGRAM_BOT_TOKEN_HERE"
+        ```
+
+5.  **Start the bot:**
+    Make sure the backend server is running, then start the bot:
+    ```bash
+    python bot.py
+    ```
 
 ## 🚀 Quick Start (Windows)
 
