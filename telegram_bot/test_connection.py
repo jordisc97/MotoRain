@@ -43,8 +43,8 @@ if __name__ == '__main__':
     import asyncio
     success = asyncio.run(test_connection())
     if success:
-        print("\n✅ Bot connection test passed! You can now run bot.py")
+        print("\n[SUCCESS] Bot connection test passed! You can now run bot.py")
     else:
-        print("\n❌ Bot connection test failed! Please fix the issues above.")
+        print("\n[ERROR] Bot connection test failed! Please fix the issues above.")
         exit(1)
 

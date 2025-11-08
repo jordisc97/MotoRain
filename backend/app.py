@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
-from radar_rain_checker import RadarRainChecker
+from .radar_rain_checker import RadarRainChecker
 
 # ------- Configure -------
 CHROMEDRIVER_PATH = r"../chromedriver/chromedriver.exe"
