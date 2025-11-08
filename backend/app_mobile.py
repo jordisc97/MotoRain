@@ -99,10 +99,10 @@ async def refresh_radar_data():
         # Don't raise, allow the server to continue even if refresh fails
 
 async def periodic_radar_refresh():
-    """Periodically refresh radar data every 10 minutes."""
+    """Periodically refresh radar data every 6 minutes."""
     while True:
         try:
-            await asyncio.sleep(600)  # Wait 10 minutes (600 seconds)
+            await asyncio.sleep(360)  # Wait 6 minutes (360 seconds)
             await refresh_radar_data()
         except Exception as e:
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error in periodic refresh: {str(e)}")
@@ -176,11 +176,11 @@ async def check_rain(route: RouteIn):
         
         # Determine weather condition based on rain intensity
         if rain_intensity == "Heavy":
-            weather_condition = "Heavy rain expected"
+            weather_condition = "Heavy rain"
         elif rain_intensity == "Light":
-            weather_condition = "Light rain expected"
+            weather_condition = "Light rain"
         else:
-            weather_condition = "No rain expected"
+            weather_condition = "Clear skies"
         
         # Return the response
         return {

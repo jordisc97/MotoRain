@@ -177,10 +177,15 @@ class RadarRainChecker:
                 f"document.getElementById('adveccio_slider').value = {val};"
                 "document.getElementById('adveccio_slider').dispatchEvent(new Event('input'));"
             )
-            time.sleep(1)
+            time.sleep(1.5)
             time_text = self.driver.find_element(By.CLASS_NAME, "time_label").text.strip()
             img = Image.open(BytesIO(map_container.screenshot_as_png)).crop((0, 0, map_container.size['width'], map_container.size['height'] - 50))
             self.radar_data.append({"time": time_text, "image": img})
+        
+        if not self.radar_data:
+            print("[RADAR_SCRAPER_WARNING] Scraped 0 frames. The website structure may have changed.")
+        else:
+            print(f"[RADAR_SCRAPER_INFO] Successfully scraped {len(self.radar_data)} frames.")
 
     @staticmethod
     def _is_storm_pixel_array(img_array: np.ndarray) -> np.ndarray:

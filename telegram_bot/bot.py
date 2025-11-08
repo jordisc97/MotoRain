@@ -25,6 +25,8 @@ import os
 import base64
 import io
 import logging
+import random
+import asyncio
 from typing import Dict
 from datetime import datetime
 
@@ -47,6 +49,9 @@ from constants import (
     USER_NAME,
     HOME_ADDRESS,
     WORK_ADDRESS,
+    RAIN_EMOJIS,
+    NO_RAIN_EMOJIS,
+    CHECKING_EMOJIS,
 )
 
 # Load environment variables from .env file
@@ -117,10 +122,11 @@ async def get_work_address(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     work_address = update.message.text.strip()
     user_data[user_id]['work'] = work_address
 
-    await update.message.reply_text(
-        f"Work address saved: {work_address} ✅\n\n"
-        "⏳ Processing your request..."
-    )
+    await update.message.reply_text(f"Work address saved: {work_address} ✅")
+
+    # Show an interactive "checking" message
+    sent_message = await update.message.reply_text(f"{CHECKING_EMOJIS[0]} Checking the weather for you...")
+    animation_task = asyncio.create_task(_animate_checking_message(sent_message))
 
     try:
         current_user_data = user_data[user_id]
@@ -129,6 +135,14 @@ async def get_work_address(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             home=current_user_data['home'],
             work=current_user_data['work'],
         )
+
+        animation_task.cancel()
+        try:
+            await animation_task
+        except asyncio.CancelledError:
+            pass  # Task was cancelled as expected
+
+        await sent_message.delete()
 
         if result.get('status') == 'ok':
             await _send_rain_check_result(update.message, result, current_user_data)
@@ -140,10 +154,13 @@ async def get_work_address(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 del user_data[user_id]
 
     except Exception as e:
+        animation_task.cancel()
+        try:
+            await animation_task
+        except asyncio.CancelledError:
+            pass
+        await sent_message.edit_text(f"[X] An error occurred: {e}\n\nPlease try again or contact support.")
         logger.error(f"Error processing rain check: {e}", exc_info=True)
-        await update.message.reply_text(
-            f"[X] An error occurred: {e}\n\nPlease try again or contact support."
-        )
         if user_id in user_data:
             del user_data[user_id]
 
@@ -206,18 +223,19 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "save_route": _handle_save_route,
         "my_routes": _handle_my_routes,
         "schedule": _handle_schedule,
+        "stop_schedule": _handle_stop_schedule,
         "back_to_main": _handle_back_to_main,
     }
 
     if action in actions:
-        await actions[action](query)
+        await actions[action](query, context)
     elif action.startswith("use_route_"):
         await _handle_use_route(query, action)
     else:
         logger.warning(f"Unhandled callback action: {action}")
 
 
-async def _handle_check_again(query: Update.callback_query):
+async def _handle_check_again(query: Update.callback_query, _: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     current_user_data = user_data.get(user_id)
 
@@ -225,23 +243,37 @@ async def _handle_check_again(query: Update.callback_query):
         await query.edit_message_text("[X] No route data found. Please use /start.")
         return
 
-    await query.edit_message_text("⏳ Checking weather again...")
+    await query.edit_message_text(f"{CHECKING_EMOJIS[0]} Checking the weather for you...")
+    animation_task = asyncio.create_task(_animate_checking_message(query.message))
+
     try:
         result = await check_rain_api(
             user=current_user_data['user'],
             home=current_user_data['home'],
             work=current_user_data['work'],
         )
+
+        animation_task.cancel()
+        try:
+            await animation_task
+        except asyncio.CancelledError:
+            pass
+
         if result.get('status') == 'ok':
             await _send_rain_check_result(query, result, current_user_data, is_update=True)
         else:
             await query.edit_message_text("[X] Error: Could not re-process your request.")
     except Exception as e:
+        animation_task.cancel()
+        try:
+            await animation_task
+        except asyncio.CancelledError:
+            pass
         logger.error(f"Error in _handle_check_again: {e}", exc_info=True)
         await query.edit_message_text(f"[X] An error occurred: {e}")
 
 
-async def _handle_save_route(query: Update.callback_query):
+async def _handle_save_route(query: Update.callback_query, _: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     current_user_data = user_data.get(user_id)
 
@@ -270,15 +302,74 @@ async def _handle_save_route(query: Update.callback_query):
         await query.edit_message_text("ℹ️ This route is already saved.")
 
 
-async def _handle_my_routes(query: Update.callback_query):
+async def _handle_my_routes(query: Update.callback_query, _: ContextTypes.DEFAULT_TYPE):
     await _show_saved_routes(query.message, user_id=query.from_user.id, from_callback=True)
 
 
-async def _handle_schedule(query: Update.callback_query):
+async def _handle_schedule(query: Update.callback_query, context: ContextTypes.DEFAULT_TYPE):
+    """Handles the 'schedule' button to set up recurring checks."""
+    user_id = query.from_user.id
+    current_user_data = user_data.get(user_id)
+
+    if not current_user_data or 'home' not in current_user_data:
+        await query.edit_message_text(
+            "[X] No route data found. Please use /start to set a route first.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_main")]])
+        )
+        return
+
+    # Check if a job is already running for this user
+    job_name = f"rain_check_{user_id}"
+    current_jobs = context.job_queue.get_jobs_by_name(job_name)
+    
+    keyboard_buttons = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_main")]]
+
+    if current_jobs:
+        keyboard_buttons.insert(0, [InlineKeyboardButton("❌ Stop Scheduled Checks", callback_data="stop_schedule")])
+        await query.edit_message_text(
+            "ℹ️ You already have a scheduled rain check running.",
+            reply_markup=InlineKeyboardMarkup(keyboard_buttons)
+        )
+        return
+
+    # Schedule a repeating job (every 2 minutes for testing)
+    context.job_queue.run_repeating(
+        _scheduled_rain_check,
+        interval=120,
+        first=1,
+        user_id=user_id,
+        data={'user_data': current_user_data},
+        name=job_name
+    )
+
     await query.edit_message_text(
-        "⚙️ <b>Schedule Automatic Checks</b>\n\n"
-        "This feature is coming soon!",
-        parse_mode='HTML'
+        "✅ Scheduled! I will check for rain on your route every 2 minutes.",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("❌ Stop Scheduled Checks", callback_data="stop_schedule")],
+            [InlineKeyboardButton("⬅️ Back", callback_data="back_to_main")]
+        ])
+    )
+
+
+async def _handle_stop_schedule(query: Update.callback_query, context: ContextTypes.DEFAULT_TYPE):
+    """Stops the scheduled rain checks for the user."""
+    user_id = query.from_user.id
+    job_name = f"rain_check_{user_id}"
+    current_jobs = context.job_queue.get_jobs_by_name(job_name)
+
+    if not current_jobs:
+        await query.edit_message_text(
+            "ℹ️ You don't have any scheduled checks running.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_main")]])
+        )
+        return
+
+    for job in current_jobs:
+        job.schedule_removal()
+
+    await query.edit_message_text(
+        "✅ Your scheduled rain checks have been stopped.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_main")]])
     )
 
 
@@ -294,13 +385,30 @@ async def _handle_use_route(query: Update.callback_query, action: str):
                 'work': route['work'],
             }
             
-            await query.edit_message_text(f"⏳ Checking weather for saved route: {route['name']}...")
-            result = await check_rain_api(**user_data[user_id])
+            await query.edit_message_text(f"{CHECKING_EMOJIS[0]} Checking the weather for you...")
+            animation_task = asyncio.create_task(_animate_checking_message(query.message))
             
-            if result.get('status') == 'ok':
-                await _send_rain_check_result(query, result, user_data[user_id])
-            else:
-                await query.edit_message_text("[X] Error processing saved route.")
+            try:
+                result = await check_rain_api(**user_data[user_id])
+
+                animation_task.cancel()
+                try:
+                    await animation_task
+                except asyncio.CancelledError:
+                    pass
+                
+                if result.get('status') == 'ok':
+                    await _send_rain_check_result(query, result, user_data[user_id])
+                else:
+                    await query.edit_message_text("[X] Error processing saved route.")
+            except Exception as e:
+                animation_task.cancel()
+                try:
+                    await animation_task
+                except asyncio.CancelledError:
+                    pass
+                logger.error(f"Error in _handle_use_route for user {user_id}: {e}", exc_info=True)
+                await query.edit_message_text(f"[X] An error occurred: {e}")
         else:
             await query.edit_message_text("[X] Saved route not found.")
     except (ValueError, IndexError) as e:
@@ -308,7 +416,23 @@ async def _handle_use_route(query: Update.callback_query, action: str):
         await query.edit_message_text("[X] Invalid route selected.")
 
 
-async def _handle_back_to_main(query: Update.callback_query):
+async def _animate_checking_message(message):
+    """Animates the 'checking' message by cycling through emojis."""
+    i = 0
+    while True:
+        try:
+            emoji = CHECKING_EMOJIS[i % len(CHECKING_EMOJIS)]
+            await message.edit_text(f"{emoji} Checking the weather for you...")
+            await asyncio.sleep(1)
+            i += 1
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.warning(f"Could not animate message: {e}")
+            break
+
+
+async def _handle_back_to_main(query: Update.callback_query, _: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(
         "What would you like to do next?",
         reply_markup=_get_main_action_buttons()
@@ -326,15 +450,19 @@ async def _send_rain_check_result(query, result: Dict, user_info: Dict, is_updat
     will_rain = result['will_rain']
     weather_condition = result['weather_condition']
     
-    emoji = "🌧️" if will_rain else "☀️"
+    emoji = random.choice(RAIN_EMOJIS) if will_rain else random.choice(NO_RAIN_EMOJIS)
     status_text = "⚠️ RAIN EXPECTED" if will_rain else "✅ NO RAIN EXPECTED"
     title = f"Rain Check Results {'(Updated)' if is_update else ''}"
-    
+
+    # Create a more conversational and less redundant message
+    if will_rain:
+        status_line = f"Heads up! <b>{weather_condition.lower()}</b> is expected on your route from <b>{user_info['home']}</b> to <b>{user_info['work']}</b>."
+    else:
+        status_line = f"Good news! The forecast shows <b>{weather_condition.lower()}</b> for your route from <b>{user_info['home']}</b> to <b>{user_info['work']}</b>."
+
     message = (
         f"{emoji} <b>{title}</b>\n\n"
-        f"<b>Status:</b> {status_text}\n"
-        f"<b>Condition:</b> {weather_condition}\n"
-        f"<b>Route:</b> {user_info['home']} → {user_info['work']}"
+        f"{status_line}"
     )
 
     # When sending a new result, we reply to the original message.
@@ -357,7 +485,8 @@ async def _show_saved_routes(message, user_id: int, from_callback: bool = False)
     user_routes = saved_routes.get(user_id)
     if not user_routes:
         text = "📋 You don't have any saved routes yet."
-        reply_markup = None
+        keyboard_buttons = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_main")]]
+        reply_markup = InlineKeyboardMarkup(keyboard_buttons)
     else:
         text = "📋 <b>Your Saved Routes:</b>\n\n"
         keyboard_buttons = []
@@ -366,6 +495,7 @@ async def _show_saved_routes(message, user_id: int, from_callback: bool = False)
             keyboard_buttons.append(
                 [InlineKeyboardButton(f"Check Route {idx + 1}", callback_data=f"use_route_{idx}")]
             )
+        keyboard_buttons.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_main")])
         reply_markup = InlineKeyboardMarkup(keyboard_buttons)
 
     if from_callback:
@@ -374,16 +504,75 @@ async def _show_saved_routes(message, user_id: int, from_callback: bool = False)
         await message.reply_text(text, parse_mode='HTML', reply_markup=reply_markup)
 
 
+async def _scheduled_rain_check(context: ContextTypes.DEFAULT_TYPE):
+    """Job function for scheduled rain checks."""
+    user_id = context.job.user_id
+    user_info = context.job.data.get('user_data', {})
+
+    if not user_info:
+        logger.warning(f"Scheduled job for user {user_id} is missing user_data.")
+        return
+
+    logger.info(f"Running scheduled rain check for user {user_id}")
+    try:
+        result = await check_rain_api(
+            user=user_info.get('user', 'User'),
+            home=user_info.get('home'),
+            work=user_info.get('work'),
+        )
+
+        if result.get('status') == 'ok':
+            will_rain = result['will_rain']
+            weather_condition = result['weather_condition']
+            
+            emoji = random.choice(RAIN_EMOJIS) if will_rain else random.choice(NO_RAIN_EMOJIS)
+            status_text = "⚠️ RAIN EXPECTED" if will_rain else "✅ NO RAIN EXPECTED"
+            title = "Scheduled Rain Check"
+
+            # Create a more conversational and less redundant message
+            if will_rain:
+                status_line = f"Heads up! <b>{weather_condition.lower()}</b> is expected on your route from <b>{user_info.get('home')}</b> to <b>{user_info.get('work')}</b>."
+            else:
+                status_line = f"Good news! The forecast shows <b>{weather_condition.lower()}</b> for your route from <b>{user_info.get('home')}</b> to <b>{user_info.get('work')}</b>."
+
+            message = (
+                f"{emoji} <b>{title}</b>\n\n"
+                f"{status_line}"
+            )
+            
+            image_data = base64.b64decode(result['image_b64'])
+            image_file = io.BytesIO(image_data)
+            image_file.name = 'radar_map.png'
+
+            await context.bot.send_photo(
+                chat_id=user_id,
+                photo=image_file,
+                caption=message,
+                parse_mode='HTML'
+            )
+        else:
+            await context.bot.send_message(
+                chat_id=user_id, 
+                text="[X] Error: Could not process your scheduled rain check."
+            )
+    except Exception as e:
+        logger.error(f"Error in _scheduled_rain_check for user {user_id}: {e}", exc_info=True)
+        await context.bot.send_message(
+            chat_id=user_id, 
+            text=f"[X] An error occurred during the scheduled check: {e}"
+        )
+
+
 def _get_main_action_buttons() -> InlineKeyboardMarkup:
     """Returns the main action buttons keyboard."""
     keyboard = [
         [
             InlineKeyboardButton("🔄 Check Again", callback_data="check_again"),
-            InlineKeyboardButton("💾 Save Route", callback_data="save_route"),
+            InlineKeyboardButton("💾 Save Current Route", callback_data="save_route"),
         ],
         [
-            InlineKeyboardButton("⚙️ Schedule Checks", callback_data="schedule"),
-            InlineKeyboardButton("📋 My Routes", callback_data="my_routes"),
+            InlineKeyboardButton("⚙️ Schedule Auto Checks", callback_data="schedule"),
+            InlineKeyboardButton("📋 View Saved Routes", callback_data="my_routes"),
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
