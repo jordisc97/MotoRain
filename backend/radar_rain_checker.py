@@ -1,5 +1,6 @@
 import os
 import time
+import re
 from io import BytesIO
 from typing import List, Tuple, Dict, Optional
 
@@ -111,13 +112,44 @@ class RadarRainChecker:
         return int(x), int(y)
 
     @staticmethod
+    def get_pixel_intensity(pixel: Tuple[int, int, int]) -> int:
+        """
+        Determine rain intensity from a pixel's color.
+        Returns:
+            0: No rain
+            1: Light rain (blue, green)
+            2: Moderate rain (yellow, orange)
+            3: Heavy rain (red, purple)
+        """
+        r, g, b = pixel[:3]
+
+        # Non-rain colors (adapted from _is_storm_pixel_array)
+        if max(r, g, b) < 50 or min(r, g, b) > 240:  # Dark or light background
+            return 0
+        if (abs(r - g) < 20) and (abs(r - b) < 20) and (r >= 80) and (r <= 240):  # Gray map features
+            return 0
+
+        # Heavy rain (reds, purples)
+        if (r > 180 and g < 80 and b < 80) or \
+           (r > 120 and g < 120 and b > 120):
+            return 3
+
+        # Moderate rain (yellows, oranges)
+        if (r > 120 and g > 120 and b < 80) or \
+           (r > 180 and 80 < g < 180 and b < 80):
+            return 2
+
+        # Light rain (cyans, greens)
+        if (b > r + 30 and b > g + 10 and b > 120 and g > r) or \
+           (g > r + 30 and g > b + 30 and g > 100):
+            return 1
+            
+        return 0
+
+    @staticmethod
     def is_rain_color(rgb_pixel: Tuple[int, int, int]) -> bool:
-        """Determine whether a pixel color indicates rain."""
-        r, g, b = rgb_pixel[:3]
-        if abs(r - g) < 15 and abs(g - b) < 15 and abs(r - b) < 15:
-            return False
-        h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
-        return s >= 0.25 and v >= 0.2
+        """Determine whether a pixel color indicates rain based on intensity."""
+        return RadarRainChecker.get_pixel_intensity(rgb_pixel) > 0
 
     def contains_rain_color(self, pixels: List[Tuple[int, int, int]]) -> bool:
         """Check if a list of pixels contains rain."""
@@ -179,8 +211,13 @@ class RadarRainChecker:
             )
             time.sleep(1.5)
             time_text = self.driver.find_element(By.CLASS_NAME, "time_label").text.strip()
+            
+            # Extract just the HH:MM part from the time string
+            match = re.search(r'(\d{1,2}:\d{2})', time_text)
+            formatted_time = match.group(1) if match else time_text
+
             img = Image.open(BytesIO(map_container.screenshot_as_png)).crop((0, 0, map_container.size['width'], map_container.size['height'] - 50))
-            self.radar_data.append({"time": time_text, "image": img})
+            self.radar_data.append({"time": formatted_time, "image": img})
         
         if not self.radar_data:
             print("[RADAR_SCRAPER_WARNING] Scraped 0 frames. The website structure may have changed.")
@@ -255,23 +292,28 @@ class RadarRainChecker:
                 x_home, y_home = self.latlon_to_pixels(*route['home'], (width, height))
                 x_work, y_work = self.latlon_to_pixels(*route['work'], (width, height))
 
-                # Get pixels along the route
+                # Get pixels and analyze intensity
                 pixels = self.get_pixels_along_line(self.last_composite, x_home, y_home, x_work, y_work)
+                intensities = [self.get_pixel_intensity(px) for px in pixels]
                 
-                # Count rain pixels and total valid pixels
-                rain_pixels = sum(1 for px in pixels if self.is_rain_color(px))
+                # Calculate metrics
+                rain_pixels = sum(1 for i in intensities if i > 0)
                 valid_pixels = len(pixels)
                 rain_ratio = rain_pixels / valid_pixels if valid_pixels > 0 else 0
+                max_intensity = max(intensities) if intensities else 0
                 
-                # More sophisticated rain detection
-                rain_detected = rain_ratio > 0.1  # At least 10% of the route has rain
-                rain_intensity = "Heavy" if rain_ratio > 0.3 else "Light" if rain_ratio > 0.1 else "None"
-                
+                # Determine rain status
+                rain_detected = max_intensity > 0
+                intensity_map = {0: "None", 1: "Light", 2: "Moderate", 3: "Heavy"}
+                rain_intensity = intensity_map.get(max_intensity, "None")
+
                 print(f"{rain_intensity} rain detected for {user} ({rain_pixels}/{valid_pixels} pixels, {rain_ratio:.1%})")
                 results[user] = {
                     "will_rain": rain_detected,
                     "rain_intensity": rain_intensity,
-                    "rain_ratio": rain_ratio
+                    "rain_ratio": rain_ratio,
+                    "start_time": self.last_times[0] if self.last_times else None,
+                    "end_time": self.last_times[-1] if self.last_times else None,
                 }
 
                 # Annotate and save the map
@@ -282,7 +324,9 @@ class RadarRainChecker:
                 results[route.get('user', 'unknown')] = {
                     "will_rain": False,
                     "rain_intensity": "None",
-                    "rain_ratio": 0
+                    "rain_ratio": 0,
+                    "start_time": self.last_times[0] if self.last_times else None,
+                    "end_time": self.last_times[-1] if self.last_times else None,
                 }
 
         return results

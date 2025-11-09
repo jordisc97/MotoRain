@@ -29,7 +29,17 @@ import random
 import asyncio
 from typing import Dict
 from datetime import datetime
+import sys
+import os
+import pandas as pd
+import re
 
+# Add project root to the Python path
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.append(project_root)
+
+from backend.forecast_checker import MeteoCatTemperatureScraper
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -43,7 +53,7 @@ from telegram.ext import (
 )
 
 # Import from our new modules
-from api import check_rain_api
+from api import check_rain_api, trigger_scrape_api
 from constants import (
     BOT_VERSION,
     USER_NAME,
@@ -82,10 +92,27 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_data[user_id] = {}
     logger.info(f"User {user_id} started a conversation")
 
+    # Stop any existing scheduled jobs for this user
+    job_name = f"rain_check_{user_id}"
+    current_jobs = context.job_queue.get_jobs_by_name(job_name)
+    if current_jobs:
+        for job in current_jobs:
+            job.schedule_removal()
+        logger.info(f"Stopped {len(current_jobs)} scheduled job(s) for user {user_id}")
+
+    # Trigger a background scrape on the backend without waiting for it to complete.
+    # This helps ensure the data is fresh by the time the user provides their route.
+    logger.info("Triggering a background radar scrape.")
+    asyncio.create_task(trigger_scrape_api())
+
     await update.message.reply_text(
         f"🌧️ Welcome to MotoRain Bot v{BOT_VERSION}!\n\n"
-        "I'll help you check if it will rain during your commute.\n\n"
-        "First, what's your name?"
+        "I can help you check for rain on your commute route using real-time radar images from MeteoCat.\n\n"
+        "Here's what you can do:\n"
+        "  - Check a route for rain right now.\n"
+        "  - Save your favorite routes.\n"
+        "  - Get scheduled rain alerts before you commute.\n\n"
+        "To get started, what's your name?"
     )
     return USER_NAME
 
@@ -147,9 +174,8 @@ async def get_work_address(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         if result.get('status') == 'ok':
             await _send_rain_check_result(update.message, result, current_user_data)
         else:
-            await update.message.reply_text(
-                "[X] Error: Could not process your request.\nPlease try again later."
-            )
+            error_message = result.get('error', 'Could not process your request.')
+            await update.message.reply_text(f"[X] Error: {error_message}\nPlease try again later.")
             if user_id in user_data:
                 del user_data[user_id]
 
@@ -181,6 +207,75 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 
 # --- Command Handlers ---
+
+async def _get_forecast_data(home: str, work: str, end_time_str: str) -> Dict[str, float] | None:
+    """Fetches and processes forecast data for home and work locations."""
+    if not end_time_str:
+        return None
+
+    try:
+        # Determine the target hour for the forecast
+        time_match = re.search(r'(\d{2}):\d{2}', end_time_str)
+        if not time_match:
+            logger.warning(f"Could not parse end_time_str: {end_time_str}")
+            return None
+        
+        target_hour = int(time_match.group(1))
+        forecast_time_str = f"{target_hour:02d}:00"
+        
+        # Initialize scraper
+        # The bot runs from `telegram_bot`, so we go one level up for the backend path
+        municipalities_path = os.path.join(project_root, 'backend', 'municipalities.json')
+        scraper = MeteoCatTemperatureScraper(municipalities_json_path=municipalities_path)
+
+        # Asynchronously get weather data for both locations
+        home_df, work_df = await asyncio.gather(
+            asyncio.to_thread(scraper.get_weather_by_name, home),
+            asyncio.to_thread(scraper.get_weather_by_name, work)
+        )
+
+        # Process dataframes to find the forecast for the target hour
+        results = []
+        for df in [home_df, work_df]:
+            if df.empty:
+                continue
+
+            # Filter for the specific time
+            row = df[df['Time'] == forecast_time_str]
+            if not row.empty:
+                try:
+                    temp = pd.to_numeric(row['Temperatura (°C)'].iloc[0], errors='coerce')
+                    rain = pd.to_numeric(row['Precipitació acumulada (mm)'].iloc[0], errors='coerce')
+                    wind = pd.to_numeric(row['Vent (km/h)'].iloc[0].split()[0], errors='coerce') # Take first part of "2 NE"
+                    
+                    if pd.notna(temp) and pd.notna(rain) and pd.notna(wind):
+                        results.append({'temp': temp, 'rain': rain, 'wind': wind})
+                except (ValueError, IndexError) as e:
+                    logger.warning(f"Could not parse weather data row: {row}. Error: {e}")
+                    continue
+
+        if not results:
+            logger.info("No valid forecast data found for the specified time.")
+            return None
+
+        # Calculate averages
+        avg_temp = sum(r['temp'] for r in results) / len(results)
+        avg_rain = sum(r['rain'] for r in results) / len(results)
+        avg_wind = sum(r['wind'] for r in results) / len(results)
+
+        return {
+            'temperature': round(avg_temp),
+            'rain': round(avg_rain, 1),
+            'wind': round(avg_wind),
+        }
+
+    except ValueError as e:
+        # This could be triggered if a municipality is not found
+        logger.error(f"Could not get forecast data due to ValueError: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"An unexpected error occurred in _get_forecast_data: {e}", exc_info=True)
+        return None
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send help message."""
@@ -448,35 +543,49 @@ async def _send_rain_check_result(query, result: Dict, user_info: Dict, is_updat
     image_file.name = 'radar_map.png'
 
     will_rain = result['will_rain']
-    weather_condition = result['weather_condition']
-    
+    rain_intensity = result.get('rain_intensity', 'None')
+    start_time = result.get('start_time')
+    end_time = result.get('end_time')
+
+    # Get forecast data
+    forecast = await _get_forecast_data(user_info['home'], user_info['work'], end_time)
+
     emoji = random.choice(RAIN_EMOJIS) if will_rain else random.choice(NO_RAIN_EMOJIS)
-    status_text = "⚠️ RAIN EXPECTED" if will_rain else "✅ NO RAIN EXPECTED"
     title = f"Rain Check Results {'(Updated)' if is_update else ''}"
+    
+    # Format the message components
+    route_line = f"<b>Route:</b> {user_info['home']} → {user_info['work']}"
+    time_line = f"<b>Time:</b> {start_time} → {end_time}" if start_time and end_time else ""
 
-    # Create a more conversational and less redundant message
     if will_rain:
-        status_line = f"Heads up! <b>{weather_condition.lower()}</b> is expected on your route from <b>{user_info['home']}</b> to <b>{user_info['work']}</b>."
+        condition_line = f"<b>Condition:</b> {rain_intensity.title()} Rain"
     else:
-        status_line = f"Good news! The forecast shows <b>{weather_condition.lower()}</b> for your route from <b>{user_info['home']}</b> to <b>{user_info['work']}</b>."
+        condition_line = "<b>Condition:</b> Sunny"
 
-    message = (
-        f"{emoji} <b>{title}</b>\n\n"
-        f"{status_line}"
-    )
+    # Build message body
+    body_parts = [route_line]
+    if time_line:
+        body_parts.append(time_line)
+    body_parts.append(condition_line)
+    
+    # Add forecast data if available
+    if forecast:
+        body_parts.append("")  # Add an empty line for spacing
+        body_parts.append(f"<b>Temperature:</b> {forecast['temperature']}°C")
+        body_parts.append(f"<b>Accumulated Rain:</b> {forecast['rain']} mm")
+        body_parts.append(f"<b>Wind:</b> {forecast['wind']} km/h")
 
-    # When sending a new result, we reply to the original message.
-    # When editing (e.g., from a callback), we use the query message.
+    message = f"{emoji} <b>{title}</b>\n\n" + "\n".join(body_parts)
+
     target_message = query.message if hasattr(query, 'message') else query
     
+    if is_update:
+        await target_message.delete()
+
     await target_message.reply_photo(
         photo=image_file,
         caption=message,
-        parse_mode='HTML'
-    )
-    
-    await target_message.reply_text(
-        "What would you like to do next?",
+        parse_mode='HTML',
         reply_markup=_get_main_action_buttons()
     )
 
@@ -523,22 +632,38 @@ async def _scheduled_rain_check(context: ContextTypes.DEFAULT_TYPE):
 
         if result.get('status') == 'ok':
             will_rain = result['will_rain']
-            weather_condition = result['weather_condition']
+            rain_intensity = result.get('rain_intensity', 'None')
+            start_time = result.get('start_time')
+            end_time = result.get('end_time')
             
+            # Get forecast data
+            forecast = await _get_forecast_data(user_info.get('home'), user_info.get('work'), end_time)
+
             emoji = random.choice(RAIN_EMOJIS) if will_rain else random.choice(NO_RAIN_EMOJIS)
-            status_text = "⚠️ RAIN EXPECTED" if will_rain else "✅ NO RAIN EXPECTED"
             title = "Scheduled Rain Check"
 
-            # Create a more conversational and less redundant message
+            # Format the message
+            route_line = f"<b>Route:</b> {user_info.get('home')} → {user_info.get('work')}"
+            time_line = f"<b>Time:</b> {start_time} → {end_time}" if start_time and end_time else ""
+            
             if will_rain:
-                status_line = f"Heads up! <b>{weather_condition.lower()}</b> is expected on your route from <b>{user_info.get('home')}</b> to <b>{user_info.get('work')}</b>."
+                condition_line = f"<b>Condition:</b> {rain_intensity.title()} Rain"
             else:
-                status_line = f"Good news! The forecast shows <b>{weather_condition.lower()}</b> for your route from <b>{user_info.get('home')}</b> to <b>{user_info.get('work')}</b>."
+                condition_line = "<b>Condition:</b> Sunny"
 
-            message = (
-                f"{emoji} <b>{title}</b>\n\n"
-                f"{status_line}"
-            )
+            body_parts = [route_line]
+            if time_line:
+                body_parts.append(time_line)
+            body_parts.append(condition_line)
+            
+            # Add forecast data if available
+            if forecast:
+                body_parts.append("")  # Add an empty line for spacing
+                body_parts.append(f"<b>Temperature:</b> {forecast['temperature']}°C")
+                body_parts.append(f"<b>Accumulated Rain:</b> {forecast['rain']} mm")
+                body_parts.append(f"<b>Wind:</b> {forecast['wind']} km/h")
+            
+            message = f"{emoji} <b>{title}</b>\n\n" + "\n".join(body_parts)
             
             image_data = base64.b64decode(result['image_b64'])
             image_file = io.BytesIO(image_data)

@@ -27,7 +27,7 @@ A Telegram bot that helps you check if it will rain during your commute, just li
 
 2. **Verify the Telegram token** in `bot.py`:
    ```python
-   TELEGRAM_TOKEN = "8477567862:AAH2l1W3WztMZI5cbSY5W0oK0r4X7kRZKcg"
+   TELEGRAM_TOKEN = "its_secret"
    ```
 
 3. **Verify the backend API URL** in `bot.py`:

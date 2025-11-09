@@ -3,7 +3,7 @@ import tempfile
 import base64
 import asyncio
 from datetime import datetime, timedelta
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -16,18 +16,16 @@ import json
 # or provide a path to a specific ChromeDriver executable
 CHROMEDRIVER_PATH = None  # Will use webdriver-manager to auto-download correct version
 MAP_BOUNDS = (40.65, -0.92, 42.95, 4.55)
+SCRAPE_TIMEOUT = 90.0  # 90-second timeout for each scraping attempt
 # -------------------------
 
 app = FastAPI()
 
-# Initialize RadarRainChecker without routes (we'll add them per request)
-radar_checker = RadarRainChecker(
-    chromedriver_path=CHROMEDRIVER_PATH,
-    map_bounds=MAP_BOUNDS,
-    headless=True
-)
+# This global variable will hold the latest successful RadarRainChecker instance.
+# The API endpoint will use this instance to serve requests.
+radar_checker: Optional[RadarRainChecker] = None
 
-# Flag to track if we've scraped the radar data
+# Flag to track if we've scraped the radar data at least once
 radar_data_scraped = False
 
 # Store for scheduled checks (in production, use a database)
@@ -81,58 +79,89 @@ class NotificationRequest(BaseModel):
     notification_type: str  # "rain_alert" or "clear_weather"
     push_token: Optional[str] = None
 
-async def refresh_radar_data():
-    """Refresh radar data by scraping new frames."""
-    global radar_data_scraped
+async def run_radar_scrape():
+    """
+    Creates a new RadarRainChecker instance, scrapes the latest frames,
+    and replaces the global instance upon success. This ensures each scrape
+    is a fresh, isolated process with a timeout.
+    """
+    global radar_checker, radar_data_scraped
+    
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] --- Starting new radar scrape cycle ---")
+    
+    # Create a new checker instance for this specific scrape cycle
+    new_checker = RadarRainChecker(
+        chromedriver_path=CHROMEDRIVER_PATH,
+        map_bounds=MAP_BOUNDS,
+        headless=True
+    )
+    
+    loop = asyncio.get_event_loop()
+
     try:
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting radar data refresh...")
+        # --- Perform the scrape with the new instance, wrapped in a timeout ---
+        await asyncio.wait_for(
+            loop.run_in_executor(None, new_checker.open_radar_page),
+            timeout=SCRAPE_TIMEOUT
+        )
+        await asyncio.wait_for(
+            loop.run_in_executor(None, new_checker.scrape_frames),
+            timeout=SCRAPE_TIMEOUT
+        )
         
-        # Run synchronous scraping functions in executor to avoid blocking
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, radar_checker.open_radar_page)
-        await loop.run_in_executor(None, radar_checker.scrape_frames)
+        # --- Scrape successful, update the global checker ---
+        old_checker = radar_checker
+        radar_checker = new_checker  # The new checker is now live
         
+        if old_checker:
+            # Clean up the old, stale instance in the background
+            await loop.run_in_executor(None, old_checker.close)
+
         radar_data_scraped = True
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Radar data refreshed successfully")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] --- Radar scrape cycle finished successfully ---")
+
+    except asyncio.TimeoutError:
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Scrape cycle timed out after {SCRAPE_TIMEOUT} seconds.")
+        await loop.run_in_executor(None, new_checker.close)
     except Exception as e:
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error refreshing radar data: {str(e)}")
-        # Don't raise, allow the server to continue even if refresh fails
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error during radar scrape cycle: {str(e)}")
+        # If the scrape fails, we must clean up the new instance that was created
+        await loop.run_in_executor(None, new_checker.close)
+
 
 async def periodic_radar_refresh():
-    """Periodically refresh radar data every 6 minutes."""
+    """Periodically triggers a radar scrape every 6 minutes."""
+    # Initial wait to allow the server to start up fully before first refresh
+    await asyncio.sleep(10)
+    
     while True:
-        try:
-            await asyncio.sleep(360)  # Wait 6 minutes (360 seconds)
-            await refresh_radar_data()
-        except Exception as e:
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error in periodic refresh: {str(e)}")
-            # Continue the loop even if there's an error
-            await asyncio.sleep(60)  # Wait 1 minute before retrying
+        await run_radar_scrape()
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Next radar refresh scheduled in 6 minutes.")
+        await asyncio.sleep(360)  # Wait 6 minutes
+
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize the radar checker when the app starts."""
-    try:
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Opening radar page...")
-        
-        # Run synchronous scraping functions in executor to avoid blocking
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, radar_checker.open_radar_page)
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Scraping radar data...")
-        await loop.run_in_executor(None, radar_checker.scrape_frames)
-        
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Radar data scraped successfully")
-        global radar_data_scraped
-        radar_data_scraped = True
-        
-        # Start the periodic refresh task
-        asyncio.create_task(periodic_radar_refresh())
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Started periodic radar refresh (every 10 minutes)")
-    except Exception as e:
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error initializing radar checker: {str(e)}")
-        # Don't raise, allow the server to start even if radar initialization fails
-        # Still start the periodic refresh task
-        asyncio.create_task(periodic_radar_refresh())
+    """Performs the initial scrape and starts the periodic refresh task."""
+    print("Performing initial radar scrape on startup...")
+    # Perform the first scrape to get data immediately
+    await run_radar_scrape()
+    
+    # Start the periodic refresh task to run in the background
+    asyncio.create_task(periodic_radar_refresh())
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Started periodic radar refresh task.")
+
+
+@app.post("/scrape/", status_code=status.HTTP_202_ACCEPTED)
+async def trigger_scrape_endpoint(background_tasks: BackgroundTasks):
+    """
+    Triggers a new radar scrape cycle in the background.
+    This allows the bot to request a refresh without blocking.
+    """
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Received scrape request from bot.")
+    background_tasks.add_task(run_radar_scrape)
+    return {"message": "Scrape task accepted"}
+
 
 @app.post("/check_rain/")
 async def check_rain(route: RouteIn):
@@ -156,16 +185,26 @@ async def check_rain(route: RouteIn):
             raise HTTPException(status_code=500, detail="Failed to process radar data")
         
         # Get the result for this user
-        result_data = results.get(route.user, {"will_rain": False, "rain_intensity": "None", "rain_ratio": 0})
+        result_data = results.get(route.user, {
+            "will_rain": False, 
+            "rain_intensity": "None", 
+            "rain_ratio": 0,
+            "start_time": None,
+            "end_time": None
+        })
         
         # Handle both old format (boolean) and new format (dict)
         if isinstance(result_data, bool):
             will_rain = result_data
             rain_intensity = "Light" if will_rain else "None"
+            start_time = None
+            end_time = None
         else:
             will_rain = result_data.get("will_rain", False)
             rain_intensity = result_data.get("rain_intensity", "None")
-        
+            start_time = result_data.get("start_time")
+            end_time = result_data.get("end_time")
+
         # Read and encode the generated map image
         fname = os.path.join(tmpdir, f"{route.user}_map.png")
         if not os.path.exists(fname):
@@ -190,6 +229,8 @@ async def check_rain(route: RouteIn):
             "will_rain": will_rain,
             "rain_intensity": rain_intensity,
             "weather_condition": weather_condition,
+            "start_time": start_time,
+            "end_time": end_time,
             "timestamp": datetime.now().isoformat()
         }
 
@@ -357,11 +398,14 @@ async def get_radar_map():
 @app.on_event("shutdown")
 def shutdown_event():
     """Clean up resources when the app shuts down."""
+    print("Closing the radar checker on shutdown...")
     try:
-        radar_checker.close()
-        print("Radar checker closed successfully")
+        if radar_checker:
+            radar_checker.close()
+            print("Radar checker closed successfully")
     except Exception as e:
         print(f"Error closing radar checker: {str(e)}")
+
 
 # Background task to perform scheduled rain checks
 async def perform_scheduled_check(user_id: str):
