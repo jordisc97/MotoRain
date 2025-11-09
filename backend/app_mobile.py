@@ -15,7 +15,6 @@ import json
 # ChromeDriver path - set to None to use webdriver-manager (recommended)
 # or provide a path to a specific ChromeDriver executable
 CHROMEDRIVER_PATH = None  # Will use webdriver-manager to auto-download correct version
-MAP_BOUNDS = (40.65, -0.92, 42.95, 4.55)
 SCRAPE_TIMEOUT = 90.0  # 90-second timeout for each scraping attempt
 # -------------------------
 
@@ -92,7 +91,7 @@ async def run_radar_scrape():
     # Create a new checker instance for this specific scrape cycle
     new_checker = RadarRainChecker(
         chromedriver_path=CHROMEDRIVER_PATH,
-        map_bounds=MAP_BOUNDS,
+        map_bounds=CATALUNYA_BOUNDS,  # Use the correct, single source of truth
         headless=True
     )
     
@@ -173,6 +172,7 @@ async def check_rain(route: RouteIn):
         # Convert addresses to coordinates
         try:
             home_coords = RadarRainChecker.get_coordinates_from_address(route.home)
+            print(f"Geocoded '{route.home}' to coordinates: {home_coords}") # LOGGING
             if not RadarRainChecker.is_within_bounds(home_coords, CATALUNYA_BOUNDS):
                 raise HTTPException(status_code=400, detail=f"Sorry, the location '{route.home}' appears to be outside of Catalunya.")
         except ValueError:
@@ -180,6 +180,7 @@ async def check_rain(route: RouteIn):
         
         try:
             work_coords = RadarRainChecker.get_coordinates_from_address(route.work)
+            print(f"Geocoded '{route.work}' to coordinates: {work_coords}") # LOGGING
             if not RadarRainChecker.is_within_bounds(work_coords, CATALUNYA_BOUNDS):
                 raise HTTPException(status_code=400, detail=f"Sorry, the location '{route.work}' appears to be outside of Catalunya.")
         except ValueError:

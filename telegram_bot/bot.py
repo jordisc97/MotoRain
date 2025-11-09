@@ -571,10 +571,14 @@ async def _handle_use_route(query: Update.callback_query, action: str):
 async def _animate_checking_message(message):
     """Animates the 'checking' message by cycling through emojis."""
     i = 0
+    last_text = ""
     while True:
         try:
             emoji = CHECKING_EMOJIS[i % len(CHECKING_EMOJIS)]
-            await message.edit_text(f"{emoji} Checking the weather for you...")
+            new_text = f"{emoji} Checking the weather for you..."
+            if new_text != last_text:
+                await message.edit_text(new_text)
+                last_text = new_text
             await asyncio.sleep(1)
             i += 1
         except asyncio.CancelledError:
@@ -920,6 +924,8 @@ def main() -> None:
             WORK_ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_work_address)],
         },
         fallbacks=[CommandHandler('cancel', cancel)],
+        per_message=False,
+        per_user=True
     )
 
     # Register handlers
