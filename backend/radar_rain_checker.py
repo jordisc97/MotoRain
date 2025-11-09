@@ -15,7 +15,16 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
+from selenium.common.exceptions import TimeoutException, WebDriverException
+from datetime import datetime, timedelta
+import pandas as pd
+from geopy.geocoders import Nominatim
+from geopy.extra.rate_limiter import RateLimiter
 
+# --- Constants ---
+# Bounding box for Catalonia, Spain
+# (min_latitude, min_longitude, max_latitude, max_longitude)
+CATALUNYA_BOUNDS = (40.5, 0.0, 42.9, 3.4)
 
 class RadarRainChecker:
     """
@@ -187,6 +196,13 @@ class RadarRainChecker:
         if 0 <= x1 < img.width and 0 <= y1 < img.height:
             pixels.append(img.getpixel((x1, y1)))
         return pixels
+
+    @staticmethod
+    def is_within_bounds(coords: tuple, bounds: tuple) -> bool:
+        """Check if a given (latitude, longitude) is within the specified bounds."""
+        lat, lon = coords
+        min_lat, min_lon, max_lat, max_lon = bounds
+        return min_lat <= lat <= max_lat and min_lon <= lon <= max_lon
 
     # ------------------------- SCRAPE & COMPOSITE -------------------------
 

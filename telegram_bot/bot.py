@@ -28,7 +28,7 @@ import logging
 import random
 import asyncio
 from typing import Dict
-from datetime import datetime
+from datetime import datetime, timedelta
 import sys
 import os
 import pandas as pd
@@ -106,12 +106,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     asyncio.create_task(trigger_scrape_api())
 
     await update.message.reply_text(
-        f"🌧️ Welcome to MotoRain Bot v{BOT_VERSION}!\n\n"
-        "I can help you check for rain on your commute route using real-time radar images from MeteoCat.\n\n"
-        "Here's what you can do:\n"
-        "  - Check a route for rain right now.\n"
-        "  - Save your favorite routes.\n"
-        "  - Get scheduled rain alerts before you commute.\n\n"
+        f"🏍️🌧️ Welcome to MotoRain Bot v{BOT_VERSION}!\n\n"
+        "I'll help you dodge the rain on your commute. Here's what I can do:\n\n"
+        "  - 🌦️ Get a Detailed Forecast: Check the temperature, wind, and rain for your specific route and time.\n"
+        "  - ⏰ Look Ahead 24 Hours: I'll warn you if any rain is expected in the next 24 hours.\n"
+        "  - 💾 Save Your Routes: Save your favorite commutes for quick and easy checks later.\n\n"
         "To get started, what's your name?"
     )
     return USER_NAME
@@ -173,6 +172,11 @@ async def get_work_address(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
         if result.get('status') == 'ok':
             await _send_rain_check_result(update.message, result, current_user_data)
+        elif result.get('status') == 404:
+            error_message = result.get('error', 'A location could not be found.')
+            await update.message.reply_text(error_message)
+            if user_id in user_data:
+                del user_data[user_id]
         else:
             error_message = result.get('error', 'Could not process your request.')
             await update.message.reply_text(f"[X] Error: {error_message}\nPlease try again later.")
@@ -206,76 +210,73 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 
-# --- Command Handlers ---
+async def start_new_route_from_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Starts a new route conversation from a button press, acting as an entry point."""
+    query = update.callback_query
+    await query.answer()
 
-async def _get_forecast_data(home: str, work: str, end_time_str: str) -> Dict[str, float] | None:
-    """Fetches and processes forecast data for home and work locations."""
-    if not end_time_str:
-        return None
+    user_id = query.from_user.id
+    
+    # Preserve user name if it exists, otherwise clear all data
+    existing_user_name = user_data.get(user_id, {}).get('user')
+    if existing_user_name:
+        user_data[user_id] = {'user': existing_user_name}
+    else:
+        user_data[user_id] = {}
 
-    try:
-        # Determine the target hour for the forecast
-        time_match = re.search(r'(\d{2}):\d{2}', end_time_str)
-        if not time_match:
-            logger.warning(f"Could not parse end_time_str: {end_time_str}")
-            return None
-        
-        target_hour = int(time_match.group(1))
-        forecast_time_str = f"{target_hour:02d}:00"
-        
-        # Initialize scraper
-        # The bot runs from `telegram_bot`, so we go one level up for the backend path
-        municipalities_path = os.path.join(project_root, 'backend', 'municipalities.json')
-        scraper = MeteoCatTemperatureScraper(municipalities_json_path=municipalities_path)
+    # Stop scheduled jobs
+    job_name = f"rain_check_{user_id}"
+    current_jobs = context.job_queue.get_jobs_by_name(job_name)
+    if current_jobs:
+        for job in current_jobs:
+            job.schedule_removal()
+        logger.info(f"User {user_id} started a new route, stopping {len(current_jobs)} scheduled job(s).")
 
-        # Asynchronously get weather data for both locations
-        home_df, work_df = await asyncio.gather(
-            asyncio.to_thread(scraper.get_weather_by_name, home),
-            asyncio.to_thread(scraper.get_weather_by_name, work)
+    # Trigger a background scrape
+    logger.info("Triggering a background radar scrape for new route.")
+    asyncio.create_task(trigger_scrape_api())
+
+    # Clean up the previous message (the one with the buttons)
+    await query.message.delete()
+
+    # If we know the user, ask for home address directly. Otherwise, ask for name.
+    if existing_user_name:
+        await query.message.reply_text(
+            f"Okay, {existing_user_name}, let's add a new route.\n\n"
+            "🏠 Please provide the new home address."
         )
+        return HOME_ADDRESS
+    else:
+        await query.message.reply_text(
+            "Okay, let's add a new route.\n\n"
+            "To get started, what's your name?"
+        )
+        return USER_NAME
 
-        # Process dataframes to find the forecast for the target hour
-        results = []
-        for df in [home_df, work_df]:
-            if df.empty:
-                continue
 
-            # Filter for the specific time
-            row = df[df['Time'] == forecast_time_str]
-            if not row.empty:
-                try:
-                    temp = pd.to_numeric(row['Temperatura (°C)'].iloc[0], errors='coerce')
-                    rain = pd.to_numeric(row['Precipitació acumulada (mm)'].iloc[0], errors='coerce')
-                    wind = pd.to_numeric(row['Vent (km/h)'].iloc[0].split()[0], errors='coerce') # Take first part of "2 NE"
-                    
-                    if pd.notna(temp) and pd.notna(rain) and pd.notna(wind):
-                        results.append({'temp': temp, 'rain': rain, 'wind': wind})
-                except (ValueError, IndexError) as e:
-                    logger.warning(f"Could not parse weather data row: {row}. Error: {e}")
-                    continue
+async def reset_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Asks for confirmation to reset user data."""
+    query = update
+    await query.answer()
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Yes, I'm sure", callback_data="confirm_reset"),
+            InlineKeyboardButton("❌ Cancel", callback_data="cancel_reset"),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # Delete the old message and send a new one for confirmation
+    await query.message.delete()
+    await query.message.reply_text(
+        "🗑️ Are you sure you want to delete all your data?\n\n"
+        "This will remove all your saved routes and scheduled checks. This action cannot be undone.",
+        reply_markup=reply_markup
+    )
 
-        if not results:
-            logger.info("No valid forecast data found for the specified time.")
-            return None
 
-        # Calculate averages
-        avg_temp = sum(r['temp'] for r in results) / len(results)
-        avg_rain = sum(r['rain'] for r in results) / len(results)
-        avg_wind = sum(r['wind'] for r in results) / len(results)
-
-        return {
-            'temperature': round(avg_temp),
-            'rain': round(avg_rain, 1),
-            'wind': round(avg_wind),
-        }
-
-    except ValueError as e:
-        # This could be triggered if a municipality is not found
-        logger.error(f"Could not get forecast data due to ValueError: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"An unexpected error occurred in _get_forecast_data: {e}", exc_info=True)
-        return None
+# --- Command Handlers ---
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send help message."""
@@ -320,6 +321,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "schedule": _handle_schedule,
         "stop_schedule": _handle_stop_schedule,
         "back_to_main": _handle_back_to_main,
+        "confirm_reset": _handle_confirm_reset,
+        "cancel_reset": _handle_cancel_reset,
+        "reset": reset_confirmation,
     }
 
     if action in actions:
@@ -335,11 +339,14 @@ async def _handle_check_again(query: Update.callback_query, _: ContextTypes.DEFA
     current_user_data = user_data.get(user_id)
 
     if not current_user_data:
-        await query.edit_message_text("[X] No route data found. Please use /start.")
+        await query.message.delete()
+        await query.message.reply_text("[X] No route data found. Please use /start.")
         return
 
-    await query.edit_message_text(f"{CHECKING_EMOJIS[0]} Checking the weather for you...")
-    animation_task = asyncio.create_task(_animate_checking_message(query.message))
+    # Delete the old photo message and send a new one for the animation
+    await query.message.delete()
+    sent_message = await query.message.reply_text(f"{CHECKING_EMOJIS[0]} Checking the weather for you...")
+    animation_task = asyncio.create_task(_animate_checking_message(sent_message))
 
     try:
         result = await check_rain_api(
@@ -353,11 +360,14 @@ async def _handle_check_again(query: Update.callback_query, _: ContextTypes.DEFA
             await animation_task
         except asyncio.CancelledError:
             pass
+        
+        await sent_message.delete()
 
         if result.get('status') == 'ok':
-            await _send_rain_check_result(query, result, current_user_data, is_update=True)
+            # Send a new photo message (is_update=False because we already deleted the old one)
+            await _send_rain_check_result(query.message, result, current_user_data, is_update=False)
         else:
-            await query.edit_message_text("[X] Error: Could not re-process your request.")
+            await query.message.reply_text("[X] Error: Could not re-process your request.")
     except Exception as e:
         animation_task.cancel()
         try:
@@ -365,7 +375,40 @@ async def _handle_check_again(query: Update.callback_query, _: ContextTypes.DEFA
         except asyncio.CancelledError:
             pass
         logger.error(f"Error in _handle_check_again: {e}", exc_info=True)
-        await query.edit_message_text(f"[X] An error occurred: {e}")
+        await sent_message.delete()
+        await query.message.reply_text(f"[X] An error occurred: {e}")
+
+
+async def _handle_confirm_reset(query: Update.callback_query, context: ContextTypes.DEFAULT_TYPE):
+    """Deletes all data for the user."""
+    user_id = query.from_user.id
+    
+    # Stop scheduled jobs
+    job_name = f"rain_check_{user_id}"
+    current_jobs = context.job_queue.get_jobs_by_name(job_name)
+    if current_jobs:
+        for job in current_jobs:
+            job.schedule_removal()
+        logger.info(f"Deleted {len(current_jobs)} scheduled jobs for user {user_id} during reset.")
+
+    # Delete from in-memory storage
+    if user_id in user_data:
+        del user_data[user_id]
+    if user_id in saved_routes:
+        del saved_routes[user_id]
+
+    keyboard = [[InlineKeyboardButton("🚀 Start New Conversation", callback_data="add_new_route")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+        
+    await query.edit_message_text(
+        "✅ All your data has been successfully deleted.",
+        reply_markup=reply_markup
+    )
+
+
+async def _handle_cancel_reset(query: Update.callback_query, _: ContextTypes.DEFAULT_TYPE):
+    """Cancels the reset action."""
+    await query.edit_message_text("❌ Reset cancelled.")
 
 
 async def _handle_save_route(query: Update.callback_query, _: ContextTypes.DEFAULT_TYPE):
@@ -373,7 +416,7 @@ async def _handle_save_route(query: Update.callback_query, _: ContextTypes.DEFAU
     current_user_data = user_data.get(user_id)
 
     if not current_user_data:
-        await query.edit_message_text("[X] No route data to save. Use /start first.")
+        await query.message.reply_text("[X] No route data to save. Use /start first.")
         return
 
     if user_id not in saved_routes:
@@ -392,13 +435,23 @@ async def _handle_save_route(query: Update.callback_query, _: ContextTypes.DEFAU
             **route_data,
             'saved_at': datetime.now().isoformat()
         })
-        await query.edit_message_text(f"✅ Route saved!\n\n<b>Route:</b> {route_name}", parse_mode='HTML')
+        await query.message.reply_text(
+            f"✅ Route saved!\n\n<b>Route:</b> {route_name}",
+            parse_mode='HTML',
+            reply_markup=_get_main_action_buttons()
+        )
     else:
-        await query.edit_message_text("ℹ️ This route is already saved.")
+        await query.message.reply_text(
+            "ℹ️ This route is already saved.",
+            reply_markup=_get_main_action_buttons()
+        )
+    
+    await query.message.delete()
 
 
 async def _handle_my_routes(query: Update.callback_query, _: ContextTypes.DEFAULT_TYPE):
-    await _show_saved_routes(query.message, user_id=query.from_user.id, from_callback=True)
+    await _show_saved_routes(query.message, user_id=query.from_user.id)
+    await query.message.delete()
 
 
 async def _handle_schedule(query: Update.callback_query, context: ContextTypes.DEFAULT_TYPE):
@@ -407,7 +460,7 @@ async def _handle_schedule(query: Update.callback_query, context: ContextTypes.D
     current_user_data = user_data.get(user_id)
 
     if not current_user_data or 'home' not in current_user_data:
-        await query.edit_message_text(
+        await query.message.reply_text(
             "[X] No route data found. Please use /start to set a route first.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_main")]])
         )
@@ -421,10 +474,11 @@ async def _handle_schedule(query: Update.callback_query, context: ContextTypes.D
 
     if current_jobs:
         keyboard_buttons.insert(0, [InlineKeyboardButton("❌ Stop Scheduled Checks", callback_data="stop_schedule")])
-        await query.edit_message_text(
+        await query.message.reply_text(
             "ℹ️ You already have a scheduled rain check running.",
             reply_markup=InlineKeyboardMarkup(keyboard_buttons)
         )
+        await query.message.delete()
         return
 
     # Schedule a repeating job (every 2 minutes for testing)
@@ -437,13 +491,14 @@ async def _handle_schedule(query: Update.callback_query, context: ContextTypes.D
         name=job_name
     )
 
-    await query.edit_message_text(
+    await query.message.reply_text(
         "✅ Scheduled! I will check for rain on your route every 2 minutes.",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("❌ Stop Scheduled Checks", callback_data="stop_schedule")],
             [InlineKeyboardButton("⬅️ Back", callback_data="back_to_main")]
         ])
     )
+    await query.message.delete()
 
 
 async def _handle_stop_schedule(query: Update.callback_query, context: ContextTypes.DEFAULT_TYPE):
@@ -453,19 +508,21 @@ async def _handle_stop_schedule(query: Update.callback_query, context: ContextTy
     current_jobs = context.job_queue.get_jobs_by_name(job_name)
 
     if not current_jobs:
-        await query.edit_message_text(
+        await query.message.reply_text(
             "ℹ️ You don't have any scheduled checks running.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_main")]])
         )
+        await query.message.delete()
         return
 
     for job in current_jobs:
         job.schedule_removal()
 
-    await query.edit_message_text(
+    await query.message.reply_text(
         "✅ Your scheduled rain checks have been stopped.",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_main")]])
     )
+    await query.message.delete()
 
 
 async def _handle_use_route(query: Update.callback_query, action: str):
@@ -528,13 +585,121 @@ async def _animate_checking_message(message):
 
 
 async def _handle_back_to_main(query: Update.callback_query, _: ContextTypes.DEFAULT_TYPE):
-    await query.edit_message_text(
+    await query.message.reply_text(
         "What would you like to do next?",
         reply_markup=_get_main_action_buttons()
     )
+    await query.message.delete()
 
 
 # --- Helper Functions ---
+
+async def _get_forecast_data(home: str, work: str, end_time_str: str) -> Dict[str, float] | None:
+    """Fetches and processes forecast data for home and work locations."""
+    if not end_time_str:
+        return None
+
+    try:
+        # Determine the target hour for the forecast
+        time_match = re.search(r'(\d{2}):\d{2}', end_time_str)
+        if not time_match:
+            logger.warning(f"Could not parse end_time_str: {end_time_str}")
+            return None
+        
+        target_hour = int(time_match.group(1))
+        forecast_time_str = f"{target_hour:02d}:00"
+        
+        # Initialize scraper
+        # The bot runs from `telegram_bot`, so we go one level up for the backend path
+        municipalities_path = os.path.join(project_root, 'backend', 'municipalities.json')
+        scraper = MeteoCatTemperatureScraper(municipalities_json_path=municipalities_path)
+
+        # Asynchronously get weather data for both locations
+        home_df, work_df = await asyncio.gather(
+            asyncio.to_thread(scraper.get_weather_by_name, home),
+            asyncio.to_thread(scraper.get_weather_by_name, work)
+        )
+
+        # Process dataframes to find the forecast for the target hour
+        results = []
+        for df in [home_df, work_df]:
+            if df.empty:
+                continue
+
+            # Filter for the specific time
+            row = df[df['Time'] == forecast_time_str]
+            if not row.empty:
+                try:
+                    temp = pd.to_numeric(row['Temperatura (°C)'].iloc[0], errors='coerce')
+                    rain = pd.to_numeric(row['Precipitació acumulada (mm)'].iloc[0], errors='coerce')
+                    wind = pd.to_numeric(row['Vent (km/h)'].iloc[0].split()[0], errors='coerce') # Take first part of "2 NE"
+                    
+                    if pd.notna(temp) and pd.notna(rain) and pd.notna(wind):
+                        results.append({'temp': temp, 'rain': rain, 'wind': wind})
+                except (ValueError, IndexError) as e:
+                    logger.warning(f"Could not parse weather data row: {row}. Error: {e}")
+                    continue
+
+        if not results:
+            logger.info("No valid forecast data found for the specified time.")
+            return None
+
+        # Calculate averages
+        avg_temp = sum(r['temp'] for r in results) / len(results)
+        avg_rain = sum(r['rain'] for r in results) / len(results)
+        avg_wind = sum(r['wind'] for r in results) / len(results)
+
+        # Check for rain in the next 24 hours
+        rain_warning = None
+        combined_df = pd.concat([home_df, work_df]).drop_duplicates().reset_index(drop=True)
+        if not combined_df.empty:
+            try:
+                # Convert day/time to datetime objects for comparison
+                combined_df['timestamp'] = pd.to_datetime(
+                    combined_df['Day'] + ' ' + combined_df['Time'], 
+                    format='%d/%m/%y %H:%M',
+                    errors='coerce'
+                )
+                combined_df.dropna(subset=['timestamp'], inplace=True)
+                
+                now = datetime.now()
+                in_24_hours = now + timedelta(hours=24)
+                
+                future_df = combined_df[
+                    (combined_df['timestamp'] > now) & 
+                    (combined_df['timestamp'] <= in_24_hours)
+                ].copy() # Use .copy() to avoid SettingWithCopyWarning
+                
+                future_df.loc[:, 'Precipitació acumulada (mm)'] = pd.to_numeric(
+                    future_df['Precipitació acumulada (mm)'], errors='coerce'
+                )
+                rainy_hours = future_df[future_df['Precipitació acumulada (mm)'] > 0]
+                
+                if not rainy_hours.empty:
+                    # Find the hour with the most rain
+                    max_rain_hour = rainy_hours.loc[rainy_hours['Precipitació acumulada (mm)'].idxmax()]
+                    rain_time = max_rain_hour['timestamp'].strftime('%H:%M')
+                    rain_amount = max_rain_hour['Precipitació acumulada (mm)']
+                    rain_warning = f"🌧️ Heads up! Rain is forecast at {rain_time} ({rain_amount} mm)."
+
+            except Exception as e:
+                logger.error(f"Error processing 24-hour rain forecast: {e}")
+
+
+        return {
+            'temperature': round(avg_temp),
+            'rain': round(avg_rain, 1),
+            'wind': round(avg_wind),
+            'rain_warning': rain_warning
+        }
+
+    except ValueError as e:
+        # This could be triggered if a municipality is not found
+        logger.error(f"Could not get forecast data due to ValueError: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"An unexpected error occurred in _get_forecast_data: {e}", exc_info=True)
+        return None
 
 async def _send_rain_check_result(query, result: Dict, user_info: Dict, is_update: bool = False):
     """Sends the formatted rain check result to the user."""
@@ -560,7 +725,7 @@ async def _send_rain_check_result(query, result: Dict, user_info: Dict, is_updat
     if will_rain:
         condition_line = f"<b>Condition:</b> {rain_intensity.title()} Rain"
     else:
-        condition_line = "<b>Condition:</b> Sunny"
+        condition_line = "<b>Condition:</b> No rain"
 
     # Build message body
     body_parts = [route_line]
@@ -571,9 +736,17 @@ async def _send_rain_check_result(query, result: Dict, user_info: Dict, is_updat
     # Add forecast data if available
     if forecast:
         body_parts.append("")  # Add an empty line for spacing
-        body_parts.append(f"<b>Temperature:</b> {forecast['temperature']}°C")
-        body_parts.append(f"<b>Accumulated Rain:</b> {forecast['rain']} mm")
-        body_parts.append(f"<b>Wind:</b> {forecast['wind']} km/h")
+        body_parts.append(f"🌡️ <b>Temperature:</b> {forecast['temperature']}°C")
+        body_parts.append(f"💧 <b>Accumulated Rain:</b> {forecast['rain']} mm")
+        body_parts.append(f"💨 <b>Wind:</b> {forecast['wind']} km/h")
+
+    # Add 24-hour rain warning if available
+    if forecast:
+        body_parts.append("")  # Add an empty line for spacing
+        if forecast.get('rain_warning'):
+            body_parts.append(forecast['rain_warning'])
+        else:
+            body_parts.append("✅ No rain expected in the next 24 hours.")
 
     message = f"{emoji} <b>{title}</b>\n\n" + "\n".join(body_parts)
 
@@ -649,7 +822,7 @@ async def _scheduled_rain_check(context: ContextTypes.DEFAULT_TYPE):
             if will_rain:
                 condition_line = f"<b>Condition:</b> {rain_intensity.title()} Rain"
             else:
-                condition_line = "<b>Condition:</b> Sunny"
+                condition_line = "<b>Condition:</b> No rain"
 
             body_parts = [route_line]
             if time_line:
@@ -659,9 +832,17 @@ async def _scheduled_rain_check(context: ContextTypes.DEFAULT_TYPE):
             # Add forecast data if available
             if forecast:
                 body_parts.append("")  # Add an empty line for spacing
-                body_parts.append(f"<b>Temperature:</b> {forecast['temperature']}°C")
-                body_parts.append(f"<b>Accumulated Rain:</b> {forecast['rain']} mm")
-                body_parts.append(f"<b>Wind:</b> {forecast['wind']} km/h")
+                body_parts.append(f"🌡️ <b>Temperature:</b> {forecast['temperature']}°C")
+                body_parts.append(f"💧 <b>Accumulated Rain:</b> {forecast['rain']} mm")
+                body_parts.append(f"💨 <b>Wind:</b> {forecast['wind']} km/h")
+            
+            # Add 24-hour rain warning if available
+            if forecast:
+                body_parts.append("")  # Add an empty line for spacing
+                if forecast.get('rain_warning'):
+                    body_parts.append(forecast['rain_warning'])
+                else:
+                    body_parts.append("✅ No rain expected in the next 24 hours.")
             
             message = f"{emoji} <b>{title}</b>\n\n" + "\n".join(body_parts)
             
@@ -698,6 +879,10 @@ def _get_main_action_buttons() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton("⚙️ Schedule Auto Checks", callback_data="schedule"),
             InlineKeyboardButton("📋 View Saved Routes", callback_data="my_routes"),
+        ],
+        [
+            InlineKeyboardButton("➕ Add New Route", callback_data="add_new_route"),
+            InlineKeyboardButton("🗑️ Reset Conversation", callback_data="reset"),
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -725,7 +910,10 @@ def main() -> None:
 
     # Define handlers
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('start', start)],
+        entry_points=[
+            CommandHandler('start', start),
+            CallbackQueryHandler(start_new_route_from_button, pattern='^add_new_route$')
+        ],
         states={
             USER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_user_name)],
             HOME_ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_home_address)],

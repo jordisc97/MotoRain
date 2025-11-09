@@ -1,5 +1,5 @@
 # Bot Version
-BOT_VERSION = "0.1.1"
+BOT_VERSION = "0.2.0"
 
 # Backend API URL (adjust if needed)
 BACKEND_API_URL = "http://localhost:8001/check_rain/"

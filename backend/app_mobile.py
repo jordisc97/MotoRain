@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
-from radar_rain_checker import RadarRainChecker
+from radar_rain_checker import RadarRainChecker, CATALUNYA_BOUNDS
 import json
 
 # ------- Configure -------
@@ -171,9 +171,20 @@ async def check_rain(route: RouteIn):
             raise HTTPException(status_code=503, detail="Radar data not available yet. Please try again in a moment.")
             
         # Convert addresses to coordinates
-        home_coords = RadarRainChecker.get_coordinates_from_address(route.home)
-        work_coords = RadarRainChecker.get_coordinates_from_address(route.work)
+        try:
+            home_coords = RadarRainChecker.get_coordinates_from_address(route.home)
+            if not RadarRainChecker.is_within_bounds(home_coords, CATALUNYA_BOUNDS):
+                raise HTTPException(status_code=400, detail=f"Sorry, the location '{route.home}' appears to be outside of Catalunya.")
+        except ValueError:
+            raise HTTPException(status_code=404, detail=f"Sorry, I could not find the location: '{route.home}'. Please try again with a more specific name.")
         
+        try:
+            work_coords = RadarRainChecker.get_coordinates_from_address(route.work)
+            if not RadarRainChecker.is_within_bounds(work_coords, CATALUNYA_BOUNDS):
+                raise HTTPException(status_code=400, detail=f"Sorry, the location '{route.work}' appears to be outside of Catalunya.")
+        except ValueError:
+            raise HTTPException(status_code=404, detail=f"Sorry, I could not find the location: '{route.work}'. Please try again with a more specific name.")
+
         # Set the route for this request
         radar_checker.routes = [{"user": route.user, "home": home_coords, "work": work_coords}]
         
