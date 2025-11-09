@@ -123,36 +123,36 @@ class RadarRainChecker:
     @staticmethod
     def get_pixel_intensity(pixel: Tuple[int, int, int]) -> int:
         """
-        Determine rain intensity from a pixel's color.
+        Determine rain intensity from a pixel's color based on the Meteocat legend.
         Returns:
             0: No rain
-            1: Light rain (blue, green)
-            2: Moderate rain (yellow, orange)
-            3: Heavy rain (red, purple)
+            1: Light rain (feble: purple, blue, cyan)
+            2: Moderate rain (moderada: green, yellow, magenta)
+            3: Heavy rain (forta: orange, red)
         """
         r, g, b = pixel[:3]
 
-        # Non-rain colors (adapted from _is_storm_pixel_array)
+        # Non-rain colors (background, map features)
         if max(r, g, b) < 50 or min(r, g, b) > 240:  # Dark or light background
             return 0
         if (abs(r - g) < 20) and (abs(r - b) < 20) and (r >= 80) and (r <= 240):  # Gray map features
             return 0
 
-        # Heavy rain (reds, purples)
-        if (r > 180 and g < 80 and b < 80) or \
-           (r > 120 and g < 120 and b > 120):
+        # Heavy rain (forta: oranges, reds)
+        if (r > 180 and 80 <= g < 180 and b < 80) or \
+           (r > 180 and g < 80 and b < 80):
             return 3
 
-        # Moderate rain (yellows, oranges)
-        if (r > 120 and g > 120 and b < 80) or \
-           (r > 180 and 80 < g < 180 and b < 80):
+        # Moderate rain (moderada: greens, yellows, magentas)
+        if (g > r + 30 and g > b + 30 and g > 100) or \
+           (r > 120 and g > 120 and b < 80) or \
+           (r > 120 and g < 120 and b > 120):
             return 2
 
-        # Light rain (cyans, greens)
-        if (b > r + 30 and b > g + 10 and b > 120 and g > r) or \
-           (g > r + 30 and g > b + 30 and g > 100):
+        # Light rain (feble: purples, blues, cyans)
+        if (b > r + 30 and b > g + 10 and b > 120 and g > r):
             return 1
-            
+
         return 0
 
     @staticmethod
@@ -246,18 +246,29 @@ class RadarRainChecker:
         if img_array.ndim != 3:
             return np.zeros(img_array.shape[:2], dtype=bool)
         r, g, b = img_array[..., 0], img_array[..., 1], img_array[..., 2]
+        
+        # Non-rain masks
         dark_mask = np.maximum(np.maximum(r, g), b) < 50
         light_mask = np.minimum(np.minimum(r, g), b) > 240
         gray_mask = ((np.abs(r - g) < 20) & (np.abs(r - b) < 20) & (r >= 80) & (r <= 240))
 
+        # Rain masks based on Meteocat legend
+        # Light (feble)
         cyan_mask = (b > r + 30) & (b > g + 10) & (b > 120) & (g > r)
+        # Note: purple is covered by magenta_mask logic but classified as light rain if not heavy.
+        # This is handled in get_pixel_intensity. For detecting any rain, we include it.
+        
+        # Moderate (moderada)
         green_mask = (g > r + 30) & (g > b + 30) & (g > 100)
         yellow_mask = (r > 120) & (g > 120) & (b < 80)
-        orange_mask = (r > 180) & (g > 80) & (g < 180) & (b < 80)
+        
+        # Heavy (forta/calamarsa)
+        orange_mask = (r > 180) & (g >= 80) & (g < 180) & (b < 80)
         red_mask = (r > 180) & (g < 80) & (b < 80)
-        purple_mask = (r > 120) & (g < 120) & (b > 120)
+        magenta_mask = (r > 120) & (g < 120) & (b > 120)
 
-        return (cyan_mask | green_mask | yellow_mask | orange_mask | red_mask | purple_mask) & ~dark_mask & ~light_mask & ~gray_mask
+        return (cyan_mask | green_mask | yellow_mask | orange_mask | red_mask | magenta_mask) & \
+               ~dark_mask & ~light_mask & ~gray_mask
 
     def create_composite_image(self) -> Tuple[Optional[Image.Image], List[str]]:
         """Combine all radar frames into a single composite image."""
