@@ -1,13 +1,21 @@
 # Bot Version
-BOT_VERSION = "0.2.0"
+BOT_VERSION = "0.2.2"
 
 # Backend API URL (adjust if needed)
-BACKEND_API_URL = "http://localhost:8001/check_rain/"
+BACKEND_BASE_URL = "http://localhost:8001"
 
-# Conversation states
-(USER_NAME, HOME_ADDRESS, WORK_ADDRESS) = range(3)
+# State definitions for conversation handlers
+(
+    USER_NAME,
+    HOME_ADDRESS,
+    WORK_ADDRESS,
+    SELECTING_ROUTE,
+    SETTING_TIMES,
+    SETTING_DAYS,
+    CONFIRMING_SCHEDULE,
+) = range(7)
 
 # Emojis for weather conditions
-RAIN_EMOJIS = ["🌧️"]
+RAIN_EMOJIS = ["🌧️", "🌦️", "☔"]
 NO_RAIN_EMOJIS = ["☀️"]
-CHECKING_EMOJIS = ["🛰️", "📡"]
+CHECKING_EMOJIS = ["🛰️", "📡", "🔭"]

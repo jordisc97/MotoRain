@@ -4,7 +4,7 @@ from typing import Dict
 
 import requests
 
-from constants import BACKEND_API_URL
+from constants import BACKEND_BASE_URL
 
 logger = logging.getLogger(__name__)
 
@@ -21,17 +21,23 @@ async def check_rain_api(user: str, home: str, work: str) -> Dict:
         "home": home,
         "work": work,
     }
+    headers = {"Content-Type": "application/json"}
 
     def _make_request():
         """Synchronous function to make the API request."""
+        url = f"{BACKEND_BASE_URL}/check_rain/"
         try:
-            response = requests.post(BACKEND_API_URL, json=payload, timeout=60)
-            response.raise_for_status()
+            response = requests.post(url, headers=headers, json=payload, timeout=60)
+            if response.status_code >= 400:
+                try:
+                    error_detail = response.json().get("detail", response.text)
+                except ValueError:
+                    error_detail = response.text
+                return {"status": "error", "code": response.status_code, "error": error_detail}
             return response.json()
         except requests.exceptions.RequestException as e:
-            logger.error(f"API request failed: {e}")
-            # Re-raise as a generic exception to be caught by the handler
-            raise Exception(f"Failed to connect to backend API: {e}") from e
+            logger.error(f"API request to check_rain failed: {e}")
+            return {"status": "error", "error": f"Failed to connect to backend API: {e}"}
 
     try:
         # Get the current running event loop
@@ -45,15 +51,46 @@ async def check_rain_api(user: str, home: str, work: str) -> Dict:
         raise
 
 
+async def geocode_address_api(address: str) -> Dict:
+    """Asynchronously calls the backend API to geocode and validate an address."""
+    payload = {"address": address}
+    headers = {"Content-Type": "application/json"}
+
+    def _make_request():
+        """Synchronous function to make the API request."""
+        url = f"{BACKEND_BASE_URL}/geocode/"
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=10)
+            if response.status_code >= 400:
+                try:
+                    error_detail = response.json().get("detail", response.text)
+                except (ValueError, AttributeError):
+                    error_detail = response.text
+                return {"status": "error", "code": response.status_code, "error": error_detail}
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            logger.error(f"API request to geocode failed: {e}")
+            return {"status": "error", "error": f"Failed to connect to backend API: {e}"}
+
+    try:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, _make_request)
+        return result
+    except Exception as e:
+        logger.error(f"Error in geocode_address_api executor: {e}")
+        raise
+
+
 async def trigger_scrape_api():
     """Asynchronously calls the backend API to trigger a new scrape cycle."""
-    scrape_url = BACKEND_API_URL.replace("check_rain/", "scrape/")
 
     def _make_request():
         """Synchronous function to make the API request."""
         try:
+            scrape_url = f"{BACKEND_BASE_URL}/scrape/"
+            headers = {"Content-Type": "application/json"}
             # This is a 'fire and forget' request, so we use a short timeout.
-            response = requests.post(scrape_url, timeout=10)
+            response = requests.post(scrape_url, headers=headers, timeout=10)
             if response.status_code == 202:
                 logger.info(f"Backend accepted scrape request via {scrape_url}")
             else:

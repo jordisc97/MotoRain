@@ -39,6 +39,11 @@ for /f "tokens=2 delims=," %%A in ('tasklist /fo csv /nh ^| findstr /i "py.exe"'
     )
 )
 echo.
+
+echo    - Killing any lingering chromedriver.exe processes...
+taskkill /F /IM chromedriver.exe /T >nul 2>&1
+echo.
+
 echo All previous processes have been stopped.
 echo.
 
@@ -47,7 +52,7 @@ REM [2/3] START BACKEND
 REM ===============================
 echo [2/3] Starting Backend Server...
 echo    - A new window titled 'MotoRain Backend' will open.
-START "MotoRain Backend" cmd /k "cd backend && py -m uvicorn app_mobile:app --host 127.0.0.1 --port 8001"
+START "MotoRain Backend" cmd /k "cd backend && py main.py"
 echo.
 echo    - Waiting 10 seconds for the backend to initialize...
 timeout /t 10 /nobreak >nul

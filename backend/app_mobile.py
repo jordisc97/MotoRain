@@ -48,6 +48,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+class AddressIn(BaseModel):
+    address: str
+
 # Add middleware to log requests for debugging
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -91,7 +94,7 @@ async def run_radar_scrape():
     # Create a new checker instance for this specific scrape cycle
     new_checker = RadarRainChecker(
         chromedriver_path=CHROMEDRIVER_PATH,
-        map_bounds=CATALUNYA_BOUNDS,  # Use the correct, single source of truth
+        map_bounds=(40.65, -0.9, 42.95, 4.55),
         headless=True
     )
     
@@ -129,10 +132,10 @@ async def run_radar_scrape():
 
 
 async def periodic_radar_refresh():
-    """Periodically triggers a radar scrape every 6 minutes."""
-    # Initial wait to allow the server to start up fully before first refresh
-    await asyncio.sleep(10)
-    
+    """
+    Immediately performs a radar scrape and then continues to trigger
+    a scrape every 6 minutes.
+    """
     while True:
         await run_radar_scrape()
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Next radar refresh scheduled in 6 minutes.")
@@ -141,14 +144,38 @@ async def periodic_radar_refresh():
 
 @app.on_event("startup")
 async def startup_event():
-    """Performs the initial scrape and starts the periodic refresh task."""
-    print("Performing initial radar scrape on startup...")
-    # Perform the first scrape to get data immediately
-    await run_radar_scrape()
-    
-    # Start the periodic refresh task to run in the background
+    """Schedules the initial and periodic radar scrapes."""
+    print("Scheduling initial and periodic radar scrapes...")
+    # Start a single task that handles both the initial scrape and the
+    # subsequent periodic scrapes.
     asyncio.create_task(periodic_radar_refresh())
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Started periodic radar refresh task.")
+
+
+@app.post("/geocode/")
+async def geocode_address(data: AddressIn):
+    try:
+        coords = RadarRainChecker.get_coordinates_from_address(data.address)
+        print(f"Geocoded '{data.address}' to coordinates: {coords}")
+        
+        if not RadarRainChecker.is_within_bounds(coords, (40.65, -0.9, 42.95, 4.55)):
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Sorry, the location '{data.address}' appears to be outside of Catalunya. Please provide an address within the region."
+            )
+            
+        return {"status": "ok", "address": data.address, "coordinates": coords}
+        
+    except ValueError:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Sorry, I could not find the location: '{data.address}'. Please try again with a more specific name."
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in geocode_address: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
 
 @app.post("/scrape/", status_code=status.HTTP_202_ACCEPTED)
@@ -173,7 +200,7 @@ async def check_rain(route: RouteIn):
         try:
             home_coords = RadarRainChecker.get_coordinates_from_address(route.home)
             print(f"Geocoded '{route.home}' to coordinates: {home_coords}") # LOGGING
-            if not RadarRainChecker.is_within_bounds(home_coords, CATALUNYA_BOUNDS):
+            if not RadarRainChecker.is_within_bounds(home_coords, (40.65, -0.9, 42.95, 4.55)):
                 raise HTTPException(status_code=400, detail=f"Sorry, the location '{route.home}' appears to be outside of Catalunya.")
         except ValueError:
             raise HTTPException(status_code=404, detail=f"Sorry, I could not find the location: '{route.home}'. Please try again with a more specific name.")
@@ -181,7 +208,7 @@ async def check_rain(route: RouteIn):
         try:
             work_coords = RadarRainChecker.get_coordinates_from_address(route.work)
             print(f"Geocoded '{route.work}' to coordinates: {work_coords}") # LOGGING
-            if not RadarRainChecker.is_within_bounds(work_coords, CATALUNYA_BOUNDS):
+            if not RadarRainChecker.is_within_bounds(work_coords, (40.65, -0.9, 42.95, 4.55)):
                 raise HTTPException(status_code=400, detail=f"Sorry, the location '{route.work}' appears to be outside of Catalunya.")
         except ValueError:
             raise HTTPException(status_code=404, detail=f"Sorry, I could not find the location: '{route.work}'. Please try again with a more specific name.")

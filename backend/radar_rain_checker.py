@@ -24,7 +24,7 @@ from geopy.extra.rate_limiter import RateLimiter
 # --- Constants ---
 # Bounding box for Catalonia, Spain
 # (min_latitude, min_longitude, max_latitude, max_longitude)
-CATALUNYA_BOUNDS = (40.5, 0.0, 42.9, 3.4)
+CATALUNYA_BOUNDS = (40.65, -0.9, 42.95, 4.55)
 
 class RadarRainChecker:
     """
@@ -94,10 +94,23 @@ class RadarRainChecker:
     def get_coordinates_from_address(address: str) -> Tuple[float, float]:
         """
         Convert an address string into geographic coordinates (latitude, longitude)
-        using the Nominatim OpenStreetMap API.
+        using the Nominatim OpenStreetMap API, biased towards Catalonia.
         """
         url = "https://nominatim.openstreetmap.org/search"
-        params = {"q": address, "format": "json"}
+        
+        # Add Catalonia context to the query for better accuracy
+        if "catalonia" not in address.lower() and "catalunya" not in address.lower():
+            query = f"{address}, Catalonia, Spain"
+        else:
+            query = address
+
+        params = {
+            "q": query,
+            "format": "json",
+            "viewbox": f"{CATALUNYA_BOUNDS[1]},{CATALUNYA_BOUNDS[2]},{CATALUNYA_BOUNDS[3]},{CATALUNYA_BOUNDS[0]}",
+            "bounded": 1,
+            "limit": 1
+        }
         headers = {
             "User-Agent": "MotoRainApp/1.0 (jordi@example.com)",
             "Referer": "http://localhost:8000"
