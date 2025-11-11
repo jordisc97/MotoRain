@@ -137,12 +137,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await sent_message.delete()
 
     # Stop any existing scheduled jobs for this user
-    job_name = f"rain_check_{user_id}"
-    current_jobs = context.job_queue.get_jobs_by_name(job_name)
-    if current_jobs:
-        for job in current_jobs:
+    user_job_prefix = f"commute_{user_id}"
+    jobs_to_remove = [job for job in context.job_queue.jobs() if job.name.startswith(user_job_prefix)]
+    if jobs_to_remove:
+        for job in jobs_to_remove:
             job.schedule_removal()
-        logger.info(f"Stopped {len(current_jobs)} scheduled job(s) for user {user_id}")
+        logger.info(f"Stopped {len(jobs_to_remove)} scheduled job(s) for user {user_id}")
 
     await update.message.reply_text(
         f"🏍️🌧️ Welcome to MotoRain Bot v{BOT_VERSION}!\n\n"
@@ -501,12 +501,12 @@ async def start_new_route_from_button(update: Update, context: ContextTypes.DEFA
         user_data[user_id] = {}
 
     # Stop scheduled jobs
-    job_name = f"rain_check_{user_id}"
-    current_jobs = context.job_queue.get_jobs_by_name(job_name)
-    if current_jobs:
-        for job in current_jobs:
+    user_job_prefix = f"commute_{user_id}"
+    jobs_to_remove = [job for job in context.job_queue.jobs() if job.name.startswith(user_job_prefix)]
+    if jobs_to_remove:
+        for job in jobs_to_remove:
             job.schedule_removal()
-        logger.info(f"User {user_id} started a new route, stopping {len(current_jobs)} scheduled job(s).")
+        logger.info(f"User {user_id} started a new route, stopping {len(jobs_to_remove)} scheduled job(s).")
 
     # Clean up the previous message (the one with the buttons)
     await query.message.delete()
@@ -664,12 +664,12 @@ async def _handle_confirm_reset(update: Update, context: ContextTypes.DEFAULT_TY
     user_id = query.from_user.id
     
     # Stop scheduled jobs
-    job_name = f"commute_{user_id}"
-    current_jobs = context.job_queue.get_jobs_by_name(job_name)
-    if current_jobs:
-        for job in current_jobs:
+    user_job_prefix = f"commute_{user_id}"
+    jobs_to_remove = [job for job in context.job_queue.jobs() if job.name.startswith(user_job_prefix)]
+    if jobs_to_remove:
+        for job in jobs_to_remove:
             job.schedule_removal()
-        logger.info(f"Deleted {len(current_jobs)} scheduled jobs for user {user_id} during reset.")
+        logger.info(f"Deleted {len(jobs_to_remove)} scheduled jobs for user {user_id} during reset.")
 
     # Delete from in-memory storage
     if user_id in user_data:
@@ -824,7 +824,7 @@ async def _execute_scheduled_check(context: ContextTypes.DEFAULT_TYPE):
 
         if result.get('status') == 'ok':
             # Only send a notification if there is rain, to avoid spamming the user.
-            if result.get('rain_intensity_label') != "No rain":
+            if result.get('will_rain'):
                 logger.info(f"Rain detected for user {user_id}. Sending scheduled alert.")
                 # We need a `Message` or `CallbackQuery` object to send a reply.
                 # Since we don't have one in a scheduled job, we send a new message directly.
@@ -857,7 +857,9 @@ def _parse_time(time_str: str) -> time:
 def _schedule_commute_checks(context: ContextTypes.DEFAULT_TYPE, user_id: int, schedule_info: Dict):
     """Schedules the commute checks based on the user's settings."""
     # Remove existing jobs for this user to avoid duplicates
-    for job in context.job_queue.get_jobs_by_name(f"commute_{user_id}"):
+    user_job_prefix = f"commute_{user_id}"
+    jobs_to_remove = [job for job in context.job_queue.jobs() if job.name.startswith(user_job_prefix)]
+    for job in jobs_to_remove:
         job.schedule_removal()
 
     morning_time_obj = _parse_time(schedule_info['morning_time'])
@@ -892,7 +894,7 @@ def _schedule_commute_checks(context: ContextTypes.DEFAULT_TYPE, user_id: int, s
         data={
             "user_id": user_id,
             "commute_time": schedule_info['morning_time'],
-            "route": schedule_info['route'],
+            "route": schedule_info['route']['name'],
             "type": "morning",
             "user_info": user_data[user_id]
         },
@@ -913,7 +915,7 @@ def _schedule_commute_checks(context: ContextTypes.DEFAULT_TYPE, user_id: int, s
         data={
             "user_id": user_id,
             "commute_time": schedule_info['evening_time'],
-            "route": schedule_info['route'],
+            "route": schedule_info['route']['name'],
             "type": "evening",
             "user_info": user_data[user_id]
         },
