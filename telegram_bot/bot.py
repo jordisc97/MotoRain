@@ -27,6 +27,7 @@ import io
 import logging
 import random
 import asyncio
+import uuid
 from typing import Dict
 from datetime import datetime, timedelta, time
 import sys
@@ -69,6 +70,9 @@ from constants import (
     SETTING_TIMES,
     SETTING_DAYS,
     CONFIRMING_SCHEDULE,
+    MANAGING_SCHEDULES,
+    EDITING_SCHEDULE_TIME,
+    EDITING_SCHEDULE_DAYS,
 )
 
 # Load environment variables from .env file
@@ -116,7 +120,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start the conversation and ask for user name."""
     user_id = update.effective_user.id
     user_data[user_id] = {}
-    logger.info(f"User {user_id} started a conversation")
+    logger.info(f"User {user_id} started a conversation with /start")
 
     # If the initial scrape is still running, show a waiting message.
     if not initial_scrape_done.is_set():
@@ -144,7 +148,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             job.schedule_removal()
         logger.info(f"Stopped {len(jobs_to_remove)} scheduled job(s) for user {user_id}")
 
-    await update.message.reply_text(
+    text = (
         f"🏍️🌧️ Welcome to MotoRain Bot v{BOT_VERSION}!\n\n"
         "I'll help you dodge the rain on your commute. Here's what I can do:\n\n"
         "  - 🌦️ Get a Detailed Forecast: Check the temperature, wind, and rain for your specific route and time.\n"
@@ -152,6 +156,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         "  - 💾 Save Your Routes: Save your favorite commutes for quick and easy checks later.\n\n"
         "To get started, what's your name?"
     )
+    await update.message.reply_text(text)
+    logger.info(f"Bot response to user {user_id}: Welcome message sent.")
     return USER_NAME
 
 
@@ -160,13 +166,18 @@ async def get_user_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     user_id = update.effective_user.id
     user_name = update.message.text.strip()
     user_data[user_id]['user'] = user_name
+    logger.info(f"User {user_id} entered name: '{user_name}'")
 
-    await update.message.reply_text(
+    text = (
         f"Nice to meet you, {user_name}! 🏠\n\n"
-        "Now, please provide your home address.\n"
-        "For best results, use the format: `Street, City` (e.g., `Carrer de Balmes, Barcelona`).",
+        "Now, please provide your home address.\n\n"
+        "For best results, use the format: `Street, City` (e.g., `Carrer de Balmes, Barcelona`)."
+    )
+    await update.message.reply_text(
+        text,
         parse_mode='Markdown'
     )
+    logger.info(f"Bot response to user {user_id}: Asked for home address.")
     return HOME_ADDRESS
 
 
@@ -174,6 +185,7 @@ async def get_home_address(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     """Store home address and ask for work address, with validation."""
     user_id = update.effective_user.id
     home_address = update.message.text.strip()
+    logger.info(f"User {user_id} entered home address: '{home_address}'")
 
     # Validate address
     sent_message = await update.message.reply_text("🔍 Validating address...")
@@ -188,12 +200,16 @@ async def get_home_address(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     user_data[user_id]['home'] = home_address
 
-    await update.message.reply_text(
+    text = (
         f"Home address saved: {home_address} ✅\n\n"
-        "Now, please provide your work address.\n"
-        "For best results, use the format: `Street, City` (e.g., `Avinguda Diagonal, Barcelona`).",
+        "Now, please provide your work address.\n\n"
+        "For best results, use the format: `Street, City` (e.g., `Avinguda Diagonal, Barcelona`)."
+    )
+    await update.message.reply_text(
+        text,
         parse_mode='Markdown'
     )
+    logger.info(f"Bot response to user {user_id}: Asked for work address.")
     return WORK_ADDRESS
 
 
@@ -201,6 +217,7 @@ async def get_work_address(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     """Store work address and process the rain check, with validation."""
     user_id = update.effective_user.id
     work_address = update.message.text.strip()
+    logger.info(f"User {user_id} entered work address: '{work_address}'")
 
     # Validate address
     sent_message = await update.message.reply_text("🔍 Validating address...")
@@ -229,7 +246,7 @@ async def get_work_address(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             logger.info("Initial scrape finished, proceeding with rain check.")
 
         current_user_data = user_data[user_id]
-        result = await check_rain_api(
+        result = await check_rain_with_retry(
             user=current_user_data['user'],
             home=current_user_data['home'],
             work=current_user_data['work'],
@@ -348,7 +365,8 @@ async def get_commute_days(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text("On which days do you commute? (Select multiple and press Done)", reply_markup=reply_markup)
+    text = "On which days do you commute? (Select multiple and press Done)\n\nSelected days: None"
+    await update.message.reply_text(text, reply_markup=reply_markup)
 
     context.user_data['days'] = []
     return CONFIRMING_SCHEDULE
@@ -382,9 +400,7 @@ async def confirm_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     morning_time = context.user_data['morning_time']
     evening_time = context.user_data['evening_time']
 
-    summary = (
-        f"Selected days: {selected_days or 'None'}"
-    )
+    text = f"On which days do you commute? (Select multiple and press Done)\n\nSelected days: {selected_days or 'None'}"
 
     keyboard = [
         [
@@ -398,7 +414,7 @@ async def confirm_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await query.edit_message_text(text=summary, reply_markup=reply_markup)
+    await query.edit_message_text(text=text, reply_markup=reply_markup)
 
     return CONFIRMING_SCHEDULE
 
@@ -438,6 +454,9 @@ async def schedule_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.answer()
     user_id = query.from_user.id
     
+    # Generate a unique ID for the schedule
+    schedule_id = uuid.uuid4().hex
+    
     await query.edit_message_text(
         "Schedule confirmed! I will notify you 30 minutes before your commute if rain is expected.",
         reply_markup=_get_main_action_buttons()
@@ -448,6 +467,7 @@ async def schedule_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE)
     route = saved_routes[user_id][route_idx]
     
     schedule_info = {
+        'id': schedule_id,
         'route': route,
         'morning_time': context.user_data['morning_time'],
         'evening_time': context.user_data['evening_time'],
@@ -548,6 +568,226 @@ async def reset_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
 
 
+async def manage_schedules(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Displays all active schedules and provides options to edit or delete them."""
+    query = update.callback_query
+    if query:
+        await query.answer()
+        user_id = query.from_user.id
+        message = query.message
+    else:
+        user_id = update.effective_user.id
+        message = update.message
+        logger.info(f"User {user_id} requested to manage schedules with /schedules command.")
+
+    user_schedules = scheduled_commutes.get(user_id, [])
+
+    if not user_schedules:
+        text = "You have no saved schedules."
+        keyboard = [[InlineKeyboardButton("⬅️ Back to Main", callback_data="back_to_main_menu")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        if query:
+            if query.message.photo:
+                await query.message.delete()
+                await query.message.reply_text(text=text, reply_markup=reply_markup)
+            else:
+                await query.edit_message_text(text=text, reply_markup=reply_markup)
+        else:
+            await message.reply_text(text=text, reply_markup=reply_markup)
+        logger.info(f"Bot response to user {user_id}: '{text}'")
+        return
+
+    text = "Here are your saved schedules. You can edit or delete them."
+    keyboard = []
+    for idx, schedule in enumerate(user_schedules):
+        schedule_text = f"{idx + 1}: {schedule['route']['name']} (Morning: {schedule['morning_time']}, Evening: {schedule['evening_time']})"
+        keyboard.append([InlineKeyboardButton(schedule_text, callback_data="noop")]) # A non-actionable button as a header
+        keyboard.append([
+            InlineKeyboardButton("✏️ Edit", callback_data=f"edit_schedule_{schedule['id']}"),
+            InlineKeyboardButton("🗑️ Delete", callback_data=f"delete_schedule_{schedule['id']}"),
+        ])
+    
+    keyboard.append([InlineKeyboardButton("⬅️ Back to Main", callback_data="back_to_main_menu")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    if query:
+        if query.message.photo:
+            await query.message.delete()
+            await query.message.reply_text(text=text, reply_markup=reply_markup)
+        else:
+            await query.edit_message_text(text=text, reply_markup=reply_markup)
+    else:
+        await message.reply_text(text=text, reply_markup=reply_markup)
+    logger.info(f"Bot response to user {user_id}: Displayed saved schedules.")
+
+async def delete_schedule_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Asks for confirmation before deleting a schedule."""
+    query = update.callback_query
+    await query.answer()
+    
+    schedule_id = query.data.split("_")[-1]
+    
+    text = "Are you sure you want to delete this schedule?"
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Yes, Delete", callback_data=f"confirm_delete_schedule_{schedule_id}"),
+            InlineKeyboardButton("❌ Cancel", callback_data="manage_schedules"),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(text=text, reply_markup=reply_markup)
+
+async def edit_schedule_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Starts the process of editing a schedule's time."""
+    query = update.callback_query
+    await query.answer()
+
+    schedule_id = query.data.split("_")[-1]
+    context.user_data['editing_schedule_id'] = schedule_id
+
+    await query.edit_message_text(text="What's the new morning commute time? (e.g., 08:30)")
+    return EDITING_SCHEDULE_TIME
+
+async def get_new_morning_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Stores the new morning time and asks for the new evening time."""
+    context.user_data['new_morning_time'] = update.message.text
+    await update.message.reply_text("What's the new evening commute time? (e.g., 17:30)")
+    return EDITING_SCHEDULE_DAYS
+
+async def get_new_commute_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Stores the new evening time and prompts for the days of the week."""
+    context.user_data['new_evening_time'] = update.message.text
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("Mon", callback_data="edit_day_0"),
+            InlineKeyboardButton("Tue", callback_data="edit_day_1"),
+            InlineKeyboardButton("Wed", callback_data="edit_day_2"),
+            InlineKeyboardButton("Thu", callback_data="edit_day_3"),
+            InlineKeyboardButton("Fri", callback_data="edit_day_4"),
+        ],
+        [InlineKeyboardButton("Done", callback_data="edit_day_done")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    text = "Select the new days for the commute:\n\nSelected days: None"
+    await update.message.reply_text(text, reply_markup=reply_markup)
+    context.user_data['new_days'] = []
+    return CONFIRMING_SCHEDULE
+
+async def update_schedule_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Updates the selected days for the schedule being edited."""
+    query = update.callback_query
+    await query.answer()
+
+    day_action = query.data.split("_")[-1]
+
+    if day_action == "done":
+        if not context.user_data.get('new_days'):
+            await query.answer("Please select at least one day.")
+            return CONFIRMING_SCHEDULE
+        return await confirm_schedule_update(update, context)
+
+    day = int(day_action)
+    if day not in context.user_data['new_days']:
+        context.user_data['new_days'].append(day)
+    else:
+        context.user_data['new_days'].remove(day)
+
+    days_map = ["Mon", "Tue", "Wed", "Thu", "Fri"]
+    selected_days = ", ".join([days_map[d] for d in sorted(context.user_data['new_days'])])
+    
+    text = f"Select the new days for the commute:\n\nSelected days: {selected_days or 'None'}"
+
+    keyboard = [
+        [
+            InlineKeyboardButton("Mon", callback_data="edit_day_0"),
+            InlineKeyboardButton("Tue", callback_data="edit_day_1"),
+            InlineKeyboardButton("Wed", callback_data="edit_day_2"),
+            InlineKeyboardButton("Thu", callback_data="edit_day_3"),
+            InlineKeyboardButton("Fri", callback_data="edit_day_4"),
+        ],
+        [InlineKeyboardButton("Done", callback_data="edit_day_done")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(text=text, reply_markup=reply_markup)
+    return CONFIRMING_SCHEDULE
+
+async def confirm_schedule_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Finalizes the schedule update."""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    schedule_id = context.user_data['editing_schedule_id']
+
+    # Find the schedule to update
+    schedule_to_update = None
+    if user_id in scheduled_commutes:
+        for s in scheduled_commutes[user_id]:
+            if s.get('id') == schedule_id:
+                schedule_to_update = s
+                break
+
+    if schedule_to_update:
+        # Update schedule details
+        schedule_to_update['morning_time'] = context.user_data['new_morning_time']
+        schedule_to_update['evening_time'] = context.user_data['new_evening_time']
+        schedule_to_update['days'] = context.user_data['new_days']
+        
+        # Reschedule the jobs
+        _schedule_commute_checks(context, user_id, schedule_to_update)
+        
+        await query.edit_message_text("Schedule updated successfully.")
+    else:
+        await query.edit_message_text("Error: Could not find the schedule to update.")
+
+    # Clean up context.user_data
+    for key in ['editing_schedule_id', 'new_morning_time', 'new_evening_time', 'new_days']:
+        if key in context.user_data:
+            del context.user_data[key]
+
+    await manage_schedules(update, context)
+    return ConversationHandler.END
+
+
+async def confirm_delete_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Deletes the specified schedule and its associated jobs."""
+    query = update.callback_query
+    await query.answer()
+
+    schedule_id = query.data.split("_")[-1]
+    user_id = query.from_user.id
+
+    # Remove the jobs
+    job_names = [f"commute_{user_id}_{schedule_id}_morning", f"commute_{user_id}_{schedule_id}_evening"]
+    for job_name in job_names:
+        jobs = context.job_queue.get_jobs_by_name(job_name)
+        for job in jobs:
+            job.schedule_removal()
+            logger.info(f"Removed job: {job.name}")
+
+    # Remove the schedule from in-memory storage
+    if user_id in scheduled_commutes:
+        scheduled_commutes[user_id] = [s for s in scheduled_commutes[user_id] if s.get('id') != schedule_id]
+
+    await query.edit_message_text(text="Schedule deleted successfully.")
+    
+    # Show the updated list of schedules
+    await manage_schedules(update, context)
+
+async def back_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Returns to the main menu view from any point in the schedule management."""
+    query = update.callback_query
+    await query.answer()
+
+    text = "What would you like to do next?"
+    reply_markup = _get_main_action_buttons()
+    
+    # We need to delete the old message and send a new one to show the main menu
+    await query.message.delete()
+    await query.message.reply_text(text=text, reply_markup=reply_markup)
+
+
 # --- Command Handlers ---
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -585,6 +825,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     action = query.data
     user_id = update.effective_user.id
+    logger.info(f"User {user_id} clicked button with action: '{action}'")
 
     actions = {
         "check_again": _handle_check_again,
@@ -594,6 +835,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "confirm_reset": _handle_confirm_reset,
         "cancel_reset": _handle_cancel_reset,
         "reset": reset_confirmation,
+        "manage_schedules": manage_schedules,
+        "back_to_main_menu": back_to_main_menu
     }
 
     if action in actions:
@@ -608,6 +851,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await schedule_confirmed(update, context)
     elif action == "schedule_confirm_no":
         await schedule_cancelled(update, context)
+    elif action.startswith("delete_schedule_"):
+        await delete_schedule_confirmation(update, context)
+    elif action.startswith("confirm_delete_schedule_"):
+        await confirm_delete_schedule(update, context)
+    elif action.startswith("edit_schedule_"):
+        await edit_schedule_time(update, context)
     else:
         logger.warning(f"Unhandled callback action: {action}")
 
@@ -628,7 +877,7 @@ async def _handle_check_again(update: Update, context: ContextTypes.DEFAULT_TYPE
     animation_task = asyncio.create_task(_animate_checking_message(sent_message))
 
     try:
-        result = await check_rain_api(
+        result = await check_rain_with_retry(
             user=current_user_data['user'],
             home=current_user_data['home'],
             work=current_user_data['work'],
@@ -756,7 +1005,7 @@ async def _handle_use_route(update: Update, action: str):
             animation_task = asyncio.create_task(_animate_checking_message(query.message))
             
             try:
-                result = await check_rain_api(**user_data[user_id])
+                result = await check_rain_with_retry(**user_data[user_id])
 
                 animation_task.cancel()
                 try:
@@ -816,7 +1065,7 @@ async def _execute_scheduled_check(context: ContextTypes.DEFAULT_TYPE):
 
     try:
         # We re-use the same API and result sending logic as the interactive check
-        result = await check_rain_api(
+        result = await check_rain_with_retry(
             user=user_info.get('user', str(user_id)),
             home=home_address,
             work=work_address,
@@ -833,7 +1082,8 @@ async def _execute_scheduled_check(context: ContextTypes.DEFAULT_TYPE):
                     result=result,
                     user_info=user_info,
                     is_update=False, # This will be a new message
-                    chat_id=user_id # Explicitly provide the chat_id
+                    chat_id=user_id, # Explicitly provide the chat_id
+                    commute_time=commute_time
                 )
             else:
                 logger.info(f"No rain detected for user {user_id}. No scheduled alert sent.")
@@ -890,7 +1140,7 @@ def _schedule_commute_checks(context: ContextTypes.DEFAULT_TYPE, user_id: int, s
     # Schedule the morning check using CronTrigger with UTC time
     context.job_queue.run_custom(
         _execute_scheduled_check,
-        name=f"commute_{user_id}_morning",
+        name=f"commute_{user_id}_{schedule_info['id']}_morning",
         data={
             "user_id": user_id,
             "commute_time": schedule_info['morning_time'],
@@ -911,7 +1161,7 @@ def _schedule_commute_checks(context: ContextTypes.DEFAULT_TYPE, user_id: int, s
     # Schedule the evening check using CronTrigger with UTC time
     context.job_queue.run_custom(
         _execute_scheduled_check,
-        name=f"commute_{user_id}_evening",
+        name=f"commute_{user_id}_{schedule_info['id']}_evening",
         data={
             "user_id": user_id,
             "commute_time": schedule_info['evening_time'],
@@ -966,6 +1216,31 @@ async def _handle_back_to_main(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 # --- Helper Functions ---
+
+async def check_rain_with_retry(max_retries=5, delay=5, **kwargs) -> Dict:
+    """
+    Calls the check_rain_api and retries if radar data is not yet available.
+    """
+    for attempt in range(max_retries):
+        result = await check_rain_api(**kwargs)
+        
+        # If successful, return the result immediately
+        if result.get('status') == 'ok':
+            return result
+        
+        # Check for the specific error message indicating temporary unavailability
+        error_message = result.get('error', '')
+        if "Radar data not available yet" in error_message:
+            logger.info(f"Radar data not available. Retrying in {delay} seconds... (Attempt {attempt + 1}/{max_retries})")
+            await asyncio.sleep(delay)
+            continue
+        else:
+            # For any other error, break the loop and return the error immediately
+            return result
+            
+    # If all retries fail, return a final error message
+    return {"status": "error", "error": "Radar data is still not available after several retries. Please try again later."}
+
 
 async def _get_forecast_data(home: str, work: str, end_time_str: str) -> Dict[str, float] | None:
     """Fetches and processes forecast data for home and work locations."""
@@ -1074,7 +1349,7 @@ async def _get_forecast_data(home: str, work: str, end_time_str: str) -> Dict[st
         logger.error(f"An unexpected error occurred in _get_forecast_data: {e}", exc_info=True)
         return None
 
-async def _send_rain_check_result(update, result: Dict, user_info: Dict, is_update: bool = False, chat_id: int = None):
+async def _send_rain_check_result(update, result: Dict, user_info: Dict, is_update: bool = False, chat_id: int = None, commute_time: str = None):
     """Sends the formatted rain check result to the user."""
     image_data = base64.b64decode(result['image_b64'])
     image_file = io.BytesIO(image_data)
@@ -1088,8 +1363,16 @@ async def _send_rain_check_result(update, result: Dict, user_info: Dict, is_upda
     # Get forecast data
     forecast = await _get_forecast_data(user_info['home'], user_info['work'], end_time)
 
-    emoji = random.choice(RAIN_EMOJIS) if will_rain else random.choice(NO_RAIN_EMOJIS)
-    title = f"Rain Check Results {'(Updated)' if is_update else ''}"
+    is_scheduled = not isinstance(update, Update)
+
+    if is_scheduled and commute_time:
+        now = datetime.now(pytz.timezone("Europe/Madrid"))
+        day_str = now.strftime('%A')
+        title = f"Scheduled Weather Alert for {day_str} at {commute_time}"
+        emoji = "❗"
+    else:
+        title = f"Rain Check Results {'(Updated)' if is_update else ''}"
+        emoji = random.choice(RAIN_EMOJIS) if will_rain else random.choice(NO_RAIN_EMOJIS)
     
     # Format the message components
     route_line = f"<b>Route:</b> {user_info['home']} → {user_info['work']}"
@@ -1141,6 +1424,7 @@ async def _send_rain_check_result(update, result: Dict, user_info: Dict, is_upda
     if is_update and target:
         await target.delete()
 
+    logger.info(f"Bot response to user {final_chat_id}: Sending rain check result (will_rain={will_rain}).")
     await bot.send_photo(
         chat_id=final_chat_id,
         photo=image_file,
@@ -1178,14 +1462,17 @@ def _get_main_action_buttons() -> InlineKeyboardMarkup:
     keyboard = [
         [
             InlineKeyboardButton("🔄 Check Again", callback_data="check_again"),
-            InlineKeyboardButton("💾 Save Current Route", callback_data="save_route"),
+            InlineKeyboardButton("➕ Add New Route", callback_data="add_new_route"),
         ],
         [
-            InlineKeyboardButton("⚙️ Schedule Auto Checks", callback_data="schedule"),
+            InlineKeyboardButton("💾 Save Current Route", callback_data="save_route"),
             InlineKeyboardButton("📋 View Saved Routes", callback_data="my_routes"),
         ],
         [
-            InlineKeyboardButton("➕ Add New Route", callback_data="add_new_route"),
+            InlineKeyboardButton("⚙️ Schedule Auto Checks", callback_data="schedule"),
+            InlineKeyboardButton("📝 Manage Schedules", callback_data="manage_schedules"),
+        ],
+        [
             InlineKeyboardButton("🗑️ Reset Conversation", callback_data="reset"),
         ]
     ]
@@ -1246,6 +1533,7 @@ def main() -> None:
     application.add_handler(CommandHandler('help', help_command))
     application.add_handler(CommandHandler('test', test_command))
     application.add_handler(CommandHandler('routes', routes_command))
+    application.add_handler(CommandHandler('schedules', manage_schedules))
     
     schedule_conv_handler = ConversationHandler(
         entry_points=[
@@ -1260,7 +1548,10 @@ def main() -> None:
                 CallbackQueryHandler(confirm_schedule, pattern='^day_'),
                 CallbackQueryHandler(schedule_confirmed, pattern='^schedule_confirm_yes$'),
                 CallbackQueryHandler(schedule_cancelled, pattern='^schedule_confirm_no$'),
+                CallbackQueryHandler(update_schedule_days, pattern='^edit_day_'),
             ],
+            EDITING_SCHEDULE_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_new_morning_time)],
+            EDITING_SCHEDULE_DAYS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_new_commute_days)],
         },
         fallbacks=[CommandHandler('cancel', cancel)],
         per_message=False,

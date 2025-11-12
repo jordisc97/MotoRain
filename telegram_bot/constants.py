@@ -1,5 +1,5 @@
 # Bot Version
-BOT_VERSION = "0.2.2"
+BOT_VERSION = "0.2.3"
 
 # Backend API URL (adjust if needed)
 BACKEND_BASE_URL = "http://localhost:8001"
@@ -13,7 +13,10 @@ BACKEND_BASE_URL = "http://localhost:8001"
     SETTING_TIMES,
     SETTING_DAYS,
     CONFIRMING_SCHEDULE,
-) = range(7)
+    MANAGING_SCHEDULES,
+    EDITING_SCHEDULE_TIME,
+    EDITING_SCHEDULE_DAYS,
+) = range(10)
 
 # Emojis for weather conditions
 RAIN_EMOJIS = ["🌧️", "🌦️", "☔"]
