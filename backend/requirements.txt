@@ -9,3 +9,4 @@ webdriver-manager
 apscheduler
 beautifulsoup4
 pandas
+geopy
