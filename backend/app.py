@@ -6,18 +6,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
-from .radar_rain_checker import RadarRainChecker
+from radar_rain_checker import RadarRainChecker
 
 # ------- Configure -------
-CHROMEDRIVER_PATH = r"../chromedriver/chromedriver.exe"
+# The CHROMEDRIVER_PATH is no longer needed here, as webdriver-manager will handle it.
 MAP_BOUNDS = (40.65, -0.92, 42.95, 4.55)
 # -------------------------
 
 app = FastAPI()
 
-# Initialize RadarRainChecker without routes (we'll add them per request)
+# Initialize RadarRainChecker without a specific chromedriver path.
+# webdriver-manager will download and manage the correct version automatically.
 radar_checker = RadarRainChecker(
-    chromedriver_path=CHROMEDRIVER_PATH,
     map_bounds=MAP_BOUNDS,
     headless=True
 )
