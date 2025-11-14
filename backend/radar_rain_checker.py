@@ -20,6 +20,9 @@ from datetime import datetime, timedelta
 import pandas as pd
 from geopy.geocoders import Nominatim
 from geopy.extra.rate_limiter import RateLimiter
+import shutil
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.service import Service as ChromeService
 
 # --- Constants ---
 # Bounding box for Catalonia, Spain
@@ -32,13 +35,7 @@ class RadarRainChecker:
     and check for rain along commute routes for multiple users.
     """
 
-    def __init__(
-        self,
-        chromedriver_path: str,
-        routes: List[Dict] = None,
-        map_bounds: Tuple[float, float, float, float] = (40.65, -0.9, 42.95, 4.55),
-        headless: bool = True,
-    ):
+    def __init__(self, chromedriver_path=None, map_bounds=(40.65, -0.92, 42.95, 4.55), routes=None, headless=True):
         """
         Initialize the RadarRainChecker.
 
@@ -48,25 +45,30 @@ class RadarRainChecker:
             map_bounds (Tuple[float, float, float, float]): Map bounds (lat_min, lon_min, lat_max, lon_max).
             headless (bool): Whether to run Chrome in headless mode.
         """
-        self.routes = routes or []
         self.map_bounds = map_bounds
+        self.routes = routes if routes is not None else []
+        self.headless = headless
+        
+        # Initialize WebDriver
+        options = Options()
+        if self.headless:
+            options.add_argument("--headless")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        
+        if chromedriver_path:
+            service = ChromeService(executable_path=chromedriver_path)
+        else:
+            # Use webdriver-manager to automatically download and manage chromedriver
+            service = ChromeService(ChromeDriverManager().install())
+            
+        self.driver = webdriver.Chrome(service=service, options=options)
+        self.wait = WebDriverWait(self.driver, 20)
+        self.image_urls = []
         self.radar_data: List[Dict] = []
         self.last_composite = None
         self.last_times = []
-
-        # Selenium setup
-        chrome_options = Options()
-        if headless:
-            chrome_options.add_argument("--headless")
-        chrome_options.add_argument("--window-size=1920,1080")
-        # Use webdriver-manager to automatically download the correct ChromeDriver version
-        # If chromedriver_path is provided and exists, use it; otherwise use webdriver-manager
-        if chromedriver_path and os.path.exists(chromedriver_path):
-            service = Service(chromedriver_path)
-        else:
-            # Automatically download and use the correct ChromeDriver version
-            service = Service(ChromeDriverManager().install())
-        self.driver = webdriver.Chrome(service=service, options=chrome_options)
 
         # Font setup for titles and addresses
         for font_name, size in [("seguiemj.ttf", 28), ("arial.ttf", 24)]:
