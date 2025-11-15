@@ -55,6 +55,9 @@ from telegram.ext import (
     JobQueue,
 )
 from apscheduler.triggers.cron import CronTrigger
+from fastapi import FastAPI, Request, HTTPException
+import uvicorn
+
 
 # Import from our new modules
 from api import check_rain_api, trigger_scrape_api, geocode_address_api
@@ -92,6 +95,114 @@ logger = logging.getLogger(__name__)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TELEGRAM_TOKEN:
     raise ValueError("TELEGRAM_TOKEN not found in .env file or environment variables")
+
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+
+# --- FastAPI App Setup ---
+application: Application = None
+app = FastAPI()
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize the bot on server startup."""
+    global application
+    job_queue = JobQueue()
+
+    application = (
+        Application.builder()
+        .token(TELEGRAM_TOKEN)
+        .job_queue(job_queue)
+        .build()
+    )
+
+    # Add all handlers from the original main() function
+    conv_handler = ConversationHandler(
+        entry_points=[
+            CommandHandler('start', start),
+            CallbackQueryHandler(start_new_route_from_button, pattern='^add_new_route$')
+        ],
+        states={
+            USER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_user_name)],
+            HOME_ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_home_address)],
+            WORK_ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_work_address)],
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+        per_message=False,
+        per_user=True
+    )
+    application.add_handler(conv_handler)
+    application.add_handler(CommandHandler('help', help_command))
+    application.add_handler(CommandHandler('test', test_command))
+    application.add_handler(CommandHandler('routes', routes_command))
+    application.add_handler(CommandHandler('schedules', manage_schedules))
+    
+    schedule_conv_handler = ConversationHandler(
+        entry_points=[
+            CommandHandler('schedule', schedule_start),
+            CallbackQueryHandler(schedule_start, pattern='^schedule$')
+            ],
+        states={
+            SELECTING_ROUTE: [CallbackQueryHandler(select_route_for_schedule, pattern='^select_route_')],
+            SETTING_TIMES: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_commute_times)],
+            SETTING_DAYS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_commute_days)],
+            CONFIRMING_SCHEDULE: [
+                CallbackQueryHandler(confirm_schedule, pattern='^day_'),
+                CallbackQueryHandler(schedule_confirmed, pattern='^schedule_confirm_yes$'),
+                CallbackQueryHandler(schedule_cancelled, pattern='^schedule_confirm_no$'),
+                CallbackQueryHandler(update_schedule_days, pattern='^edit_day_'),
+            ],
+            EDITING_SCHEDULE_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_new_morning_time)],
+            EDITING_SCHEDULE_DAYS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_new_commute_days)],
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+        per_message=False,
+        per_user=True
+    )
+    application.add_handler(schedule_conv_handler)
+    application.add_handler(CallbackQueryHandler(handle_callback))
+    application.add_error_handler(error_handler)
+
+    # Initialize the application and set the webhook
+    await application.initialize()
+    if not WEBHOOK_URL:
+        logger.warning("WEBHOOK_URL is not set. The bot will not be able to receive updates.")
+        await application.bot.delete_webhook(drop_pending_updates=True)
+    else:
+        webhook_endpoint = f"{WEBHOOK_URL}/telegram"
+        logger.info(f"Setting webhook to {webhook_endpoint}...")
+        await application.bot.set_webhook(url=webhook_endpoint, allowed_updates=Update.ALL_TYPES)
+        logger.info("Webhook set successfully.")
+
+    # Trigger the initial data scrape
+    logger.info("Triggering initial data scrape.")
+    asyncio.create_task(scrape_and_set_event())
+    logger.info("Startup complete.")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up the bot on server shutdown."""
+    if application:
+        await application.shutdown()
+
+@app.post("/telegram")
+async def telegram_webhook(request: Request):
+    """Handle incoming Telegram updates."""
+    if not application:
+        raise HTTPException(status_code=500, detail="Application not initialized")
+    try:
+        data = await request.json()
+        update = Update.de_json(data, application.bot)
+        await application.update_queue.put(update)
+        return {"ok": True}
+    except Exception as e:
+        logger.error(f"Error processing webhook: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+@app.get("/")
+async def health_check():
+    """Health check endpoint."""
+    return {"status": "ok", "bot_initialized": application is not None}
+
 
 # In-memory storage (replace with a database for production)
 user_data: Dict[int, Dict] = {}
@@ -1487,86 +1598,8 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.effective_message.reply_text("❌ Sorry, an unexpected error occurred.")
 
 
-async def post_init(application: Application) -> None:
-    """Post-initialization function to clean up webhooks."""
-    logger.info("Running post-init cleanup...")
-    await application.bot.delete_webhook(drop_pending_updates=True)
-    
-    # Trigger a scrape on startup to ensure fresh data
-    logger.info("Triggering initial data scrape.")
-    asyncio.create_task(scrape_and_set_event())
-    
-    logger.info("Webhook cleanup complete.")
-
-
-def main() -> None:
-    """Start the bot."""
-    job_queue = JobQueue()
-
-    # Create application with the post_init hook
-    application = (
-        Application.builder()
-        .token(TELEGRAM_TOKEN)
-        .post_init(post_init)
-        .job_queue(job_queue)
-        .build()
-    )
-
-    # Define handlers
-    conv_handler = ConversationHandler(
-        entry_points=[
-            CommandHandler('start', start),
-            CallbackQueryHandler(start_new_route_from_button, pattern='^add_new_route$')
-        ],
-        states={
-            USER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_user_name)],
-            HOME_ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_home_address)],
-            WORK_ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_work_address)],
-        },
-        fallbacks=[CommandHandler('cancel', cancel)],
-        per_message=False,
-        per_user=True
-    )
-
-    # Register handlers
-    application.add_handler(conv_handler)
-    application.add_handler(CommandHandler('help', help_command))
-    application.add_handler(CommandHandler('test', test_command))
-    application.add_handler(CommandHandler('routes', routes_command))
-    application.add_handler(CommandHandler('schedules', manage_schedules))
-    
-    schedule_conv_handler = ConversationHandler(
-        entry_points=[
-            CommandHandler('schedule', schedule_start),
-            CallbackQueryHandler(schedule_start, pattern='^schedule$')
-            ],
-        states={
-            SELECTING_ROUTE: [CallbackQueryHandler(select_route_for_schedule, pattern='^select_route_')],
-            SETTING_TIMES: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_commute_times)],
-            SETTING_DAYS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_commute_days)],
-            CONFIRMING_SCHEDULE: [
-                CallbackQueryHandler(confirm_schedule, pattern='^day_'),
-                CallbackQueryHandler(schedule_confirmed, pattern='^schedule_confirm_yes$'),
-                CallbackQueryHandler(schedule_cancelled, pattern='^schedule_confirm_no$'),
-                CallbackQueryHandler(update_schedule_days, pattern='^edit_day_'),
-            ],
-            EDITING_SCHEDULE_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_new_morning_time)],
-            EDITING_SCHEDULE_DAYS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_new_commute_days)],
-        },
-        fallbacks=[CommandHandler('cancel', cancel)],
-        per_message=False,
-        per_user=True
-    )
-    application.add_handler(schedule_conv_handler)
-
-    application.add_handler(CallbackQueryHandler(handle_callback))
-    application.add_error_handler(error_handler)
-
-    # Run the bot
-    logger.info(f"Starting MotoRain Telegram Bot v{BOT_VERSION}...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
-
-
 if __name__ == '__main__':
-    logger.info("Initializing MotoRain Telegram Bot...")
-    main()
+    logger.info("Initializing MotoRain Telegram Bot for web deployment...")
+    port = int(os.environ.get("PORT", "8080"))
+    logger.info(f"Starting web server on 0.0.0.0:{port}")
+    uvicorn.run(app, host="0.0.0.0", port=port)
