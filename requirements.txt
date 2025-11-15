@@ -1,17 +1,16 @@
-# MotoRain Application Requirements
-# Install with: pip install -r requirements.txt
-
-# Backend dependencies
-fastapi>=0.104.0
-uvicorn[standard]>=0.24.0
-requests>=2.31.0
-pillow>=10.0.0
-numpy>=1.24.0
-selenium>=4.15.0
-python-multipart>=0.0.6
-
-# Optional: Development dependencies
-pytest>=7.4.0
-pytest-asyncio>=0.21.0
-black>=23.0.0
-flake8>=6.0.0
+# Combined requirements for MotoRain Backend and Telegram Bot
+fastapi
+uvicorn[standard]
+requests
+pillow
+numpy
+selenium
+python-multipart
+webdriver-manager
+apscheduler
+beautifulsoup4
+pandas
+geopy
+python-telegram-bot
+python-dotenv
+pytz

@@ -1,8 +1,0 @@
-python-telegram-bot
-requests
-apscheduler
-python-dotenv
-pytz
-fastapi
-uvicorn
-
