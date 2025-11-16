@@ -60,8 +60,8 @@ import uvicorn
 
 
 # Import from our new modules
-from api import check_rain_api, trigger_scrape_api, geocode_address_api
-from constants import (
+from .api import check_rain_api, trigger_scrape_api, geocode_address_api
+from .constants import (
     BOT_VERSION,
     USER_NAME,
     HOME_ADDRESS,
