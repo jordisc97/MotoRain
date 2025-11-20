@@ -15,7 +15,8 @@ import json
 # ChromeDriver path - set to None to use webdriver-manager (recommended)
 # or provide a path to a specific ChromeDriver executable
 CHROMEDRIVER_PATH = None  # Will use webdriver-manager to auto-download correct version
-SCRAPE_TIMEOUT = 90.0  # 90-second timeout for each scraping attempt
+SCRAPE_TIMEOUT = 120.0  # 120-second timeout for each scraping attempt
+scrape_lock = asyncio.Lock()
 # -------------------------
 
 app = FastAPI()
@@ -89,46 +90,48 @@ async def run_radar_scrape():
     """
     global radar_checker, radar_data_scraped
     
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] --- Starting new radar scrape cycle ---")
-    
-    # Create a new checker instance for this specific scrape cycle
-    new_checker = RadarRainChecker(
-        chromedriver_path=CHROMEDRIVER_PATH,
-        map_bounds=(40.65, -0.9, 42.95, 4.55),
-        headless=True
-    )
-    
-    loop = asyncio.get_event_loop()
-
-    try:
-        # --- Perform the scrape with the new instance, wrapped in a timeout ---
-        await asyncio.wait_for(
-            loop.run_in_executor(None, new_checker.open_radar_page),
-            timeout=SCRAPE_TIMEOUT
-        )
-        await asyncio.wait_for(
-            loop.run_in_executor(None, new_checker.scrape_frames),
-            timeout=SCRAPE_TIMEOUT
+    # Use a lock to prevent concurrent scrapes
+    async with scrape_lock:
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] --- Starting new radar scrape cycle ---")
+        
+        # Create a new checker instance for this specific scrape cycle
+        new_checker = RadarRainChecker(
+            chromedriver_path=CHROMEDRIVER_PATH,
+            map_bounds=CATALUNYA_BOUNDS,
+            headless=True
         )
         
-        # --- Scrape successful, update the global checker ---
-        old_checker = radar_checker
-        radar_checker = new_checker  # The new checker is now live
-        
-        if old_checker:
-            # Clean up the old, stale instance in the background
-            await loop.run_in_executor(None, old_checker.close)
+        loop = asyncio.get_event_loop()
 
-        radar_data_scraped = True
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] --- Radar scrape cycle finished successfully ---")
+        try:
+            # --- Perform the scrape with the new instance, wrapped in a timeout ---
+            await asyncio.wait_for(
+                loop.run_in_executor(None, new_checker.open_radar_page),
+                timeout=SCRAPE_TIMEOUT
+            )
+            await asyncio.wait_for(
+                loop.run_in_executor(None, new_checker.scrape_frames),
+                timeout=SCRAPE_TIMEOUT
+            )
+            
+            # --- Scrape successful, update the global checker ---
+            old_checker = radar_checker
+            radar_checker = new_checker  # The new checker is now live
+            
+            if old_checker:
+                # Clean up the old, stale instance in the background
+                await loop.run_in_executor(None, old_checker.close)
 
-    except asyncio.TimeoutError:
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Scrape cycle timed out after {SCRAPE_TIMEOUT} seconds.")
-        await loop.run_in_executor(None, new_checker.close)
-    except Exception as e:
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error during radar scrape cycle: {str(e)}")
-        # If the scrape fails, we must clean up the new instance that was created
-        await loop.run_in_executor(None, new_checker.close)
+            radar_data_scraped = True
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] --- Radar scrape cycle finished successfully ---")
+
+        except asyncio.TimeoutError:
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Scrape cycle timed out after {SCRAPE_TIMEOUT} seconds.")
+            await loop.run_in_executor(None, new_checker.close)
+        except Exception as e:
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Error during radar scrape cycle: {str(e)}")
+            # If the scrape fails, we must clean up the new instance that was created
+            await loop.run_in_executor(None, new_checker.close)
 
 
 async def periodic_radar_refresh():
@@ -158,7 +161,7 @@ async def geocode_address(data: AddressIn):
         coords = RadarRainChecker.get_coordinates_from_address(data.address)
         print(f"Geocoded '{data.address}' to coordinates: {coords}")
         
-        if not RadarRainChecker.is_within_bounds(coords, (40.65, -0.9, 42.95, 4.55)):
+        if not RadarRainChecker.is_within_bounds(coords, CATALUNYA_BOUNDS):
             raise HTTPException(
                 status_code=400, 
                 detail=f"Sorry, the location '{data.address}' appears to be outside of Catalunya. Please provide an address within the region."
@@ -200,7 +203,7 @@ async def check_rain(route: RouteIn):
         try:
             home_coords = RadarRainChecker.get_coordinates_from_address(route.home)
             print(f"Geocoded '{route.home}' to coordinates: {home_coords}") # LOGGING
-            if not RadarRainChecker.is_within_bounds(home_coords, (40.65, -0.9, 42.95, 4.55)):
+            if not RadarRainChecker.is_within_bounds(home_coords, CATALUNYA_BOUNDS):
                 raise HTTPException(status_code=400, detail=f"Sorry, the location '{route.home}' appears to be outside of Catalunya.")
         except ValueError:
             raise HTTPException(status_code=404, detail=f"Sorry, I could not find the location: '{route.home}'. Please try again with a more specific name.")
@@ -208,7 +211,7 @@ async def check_rain(route: RouteIn):
         try:
             work_coords = RadarRainChecker.get_coordinates_from_address(route.work)
             print(f"Geocoded '{route.work}' to coordinates: {work_coords}") # LOGGING
-            if not RadarRainChecker.is_within_bounds(work_coords, (40.65, -0.9, 42.95, 4.55)):
+            if not RadarRainChecker.is_within_bounds(work_coords, CATALUNYA_BOUNDS):
                 raise HTTPException(status_code=400, detail=f"Sorry, the location '{route.work}' appears to be outside of Catalunya.")
         except ValueError:
             raise HTTPException(status_code=404, detail=f"Sorry, I could not find the location: '{route.work}'. Please try again with a more specific name.")

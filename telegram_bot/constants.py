@@ -1,5 +1,5 @@
 # Bot Version
-BOT_VERSION = "0.2.3"
+BOT_VERSION = "0.2.5"
 
 # Backend API URL (adjust if needed)
 BACKEND_BASE_URL = "http://localhost:8001"
@@ -21,4 +21,4 @@ BACKEND_BASE_URL = "http://localhost:8001"
 # Emojis for weather conditions
 RAIN_EMOJIS = ["🌧️", "🌦️", "☔"]
 NO_RAIN_EMOJIS = ["☀️"]
-CHECKING_EMOJIS = ["🛰️", "📡", "🔭"]
+CHECKING_EMOJIS = ["🛰️", "📡"]
