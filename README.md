@@ -2,6 +2,29 @@
 
 A real-time weather analysis application that helps cyclists and motorcyclists determine if they should take their bike based on current rain conditions along their commute route.
 
+## 🤖 Telegram Bot Features & Usage
+
+The MotoRain Telegram Bot is the easiest way to check your commute weather on the go.
+
+**Key Features:**
+*   **🌦️ Instant Rain Checks:** Get real-time rain analysis for your specific route.
+*   **⏰ Scheduled Commute Alerts:** Set up automatic checks for your morning and evening commutes (e.g., "Check my route every weekday at 8:30 AM").
+*   **💾 Save Routes:** Save your home and work addresses for one-tap checks.
+*   **🗺️ Radar Maps:** Receive a visual radar map showing rain intensity along your path.
+*   **⚠️ 24h Warnings:** Get warned if rain is expected in the next 24 hours.
+
+**Commands:**
+*   `/start` - Start a conversation to check rain or set up a new route.
+*   `/routes` - View and manage your saved routes.
+*   `/schedules` - Manage your automatic commute alerts.
+*   `/help` - Show the help menu.
+
+**How to Use:**
+1.  Start the bot with `/start`.
+2.  Enter your name, home address, and work address when prompted.
+3.  The bot will show you the current weather conditions and a radar map.
+4.  Use the buttons to **Save Route** or **Schedule Auto Checks**.
+
 ## 🚀 Features
 
 - **Real-time Radar Data**: Scrapes live weather radar data from Meteocat (Catalonia weather service)
