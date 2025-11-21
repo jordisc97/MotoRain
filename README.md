@@ -36,16 +36,16 @@ The MotoRain Telegram Bot is the easiest way to check your commute weather on th
 *   `/help` - Show the help menu.
 
 ### Examples
-1. Bot Set Up:
+## 1. Bot Set Up:
 <img width="712" height="722" alt="image" src="https://github.com/user-attachments/assets/73fd2797-8a15-408c-8754-c2a54b670ab3" />
 
-2. Check Weather Radar and Forecast
+## 2. Check Weather Radar and Forecast
 <img width="707" height="817" alt="image" src="https://github.com/user-attachments/assets/0f074315-af73-4700-aa08-05a881a5c0c0" />
 
-3. Set Up New Routes and Create Rain Alerts
+## 3. Set Up New Routes and Create Rain Alerts
 <img width="707" height="471" alt="image" src="https://github.com/user-attachments/assets/8127366d-5e57-46cd-a2b5-6dcc3876dd89" />
 
-4. Proactive Alerts if Rain is Detected on the Radar while Commuting
+## 4. Proactive Alerts if Rain is Detected on the Radar while Commuting
 <img width="718" height="838" alt="image" src="https://github.com/user-attachments/assets/882a2255-d095-46b5-b6c4-5970cfef7475" />
 
 
