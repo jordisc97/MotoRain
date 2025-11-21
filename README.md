@@ -2,47 +2,71 @@
 
 A real-time weather analysis application that helps cyclists and motorcyclists determine if they should take their bike based on current rain conditions along their commute route.
 
-## 🤖 Telegram Bot Features & Usage
+## 📲 Ways to Use MotoRain
 
-The MotoRain Telegram Bot is the easiest way to check your commute weather on the go.
+MotoRain is available in three convenient formats to suit your needs:
 
-**Key Features:**
+1.  **🤖 Telegram Bot:** The quickest way to check weather on the go. Send a message, get a result. Perfect for daily commuters who want instant checks or scheduled alerts.
+2.  **💻 Web Interface:** A visual dashboard to explore the radar map and check routes from your browser.
+3.  **📱 Mobile App:** A dedicated iOS-style app experience for heavy users, featuring push notifications and a seamless UI.
+
+---
+
+## 🤖 Telegram Bot (Recommended)
+
+The MotoRain Telegram Bot is the easiest way to check your commute weather on the go without installing any new apps.
+
+### Key Features
 *   **🌦️ Instant Rain Checks:** Get real-time rain analysis for your specific route.
 *   **⏰ Scheduled Commute Alerts:** Set up automatic checks for your morning and evening commutes (e.g., "Check my route every weekday at 8:30 AM").
 *   **💾 Save Routes:** Save your home and work addresses for one-tap checks.
 *   **🗺️ Radar Maps:** Receive a visual radar map showing rain intensity along your path.
 *   **⚠️ 24h Warnings:** Get warned if rain is expected in the next 24 hours.
 
-**Commands:**
-*   `/start` - Start a conversation to check rain or set up a new route.
-*   `/routes` - View and manage your saved routes.
-*   `/schedules` - Manage your automatic commute alerts.
-*   `/help` - Show the help menu.
-
-**How to Use:**
+### How to Use
 1.  Start the bot with `/start`.
 2.  Enter your name, home address, and work address when prompted.
 3.  The bot will show you the current weather conditions and a radar map.
 4.  Use the buttons to **Save Route** or **Schedule Auto Checks**.
 
-## 🚀 Features
+### Commands
+*   `/start` - Start a conversation to check rain or set up a new route.
+*   `/routes` - View and manage your saved routes.
+*   `/schedules` - Manage your automatic commute alerts.
+*   `/help` - Show the help menu.
+
+---
+
+## 💻 Web & 📱 Mobile Apps
+
+For users who prefer a visual interface or a dedicated application, MotoRain offers robust web and mobile experiences.
+
+### Web Interface
+The web dashboard provides a clean, responsive interface accessible from any browser.
+*   **Visual Maps:** Large, detailed radar maps showing rain patterns over your route.
+*   **Smart Recommendations:** Clear "Go/No-Go" advice based on weather severity.
+*   **Desktop & Mobile Friendly:** Optimized for all screen sizes using Bootstrap 5.
+
+### Mobile App (iOS Design)
+A premium mobile experience designed for daily use.
+*   **Modern UI:** Sleek, Revolut-inspired design for a native feel.
+*   **Commute Settings:** Easily configure your work schedule (days & times) for automatic background checks.
+*   **Address Sync:** Automatically syncs your home and work locations across the app.
+*   **Push Notifications:** Get alerted *only* when you need to know—like when rain is approaching before your commute.
+
+*Try the simulation:* Open `frontend/mobile-app-simulation.html` in your browser to preview the app experience.
+
+---
+
+## 🚀 Technical Features
 
 - **Real-time Radar Data**: Scrapes live weather radar data from Meteocat (Catalonia weather service)
 - **Route Analysis**: Analyzes rain conditions along your specific commute route
 - **Visual Maps**: Generates annotated maps showing weather patterns and your route
 - **Smart Recommendations**: Provides weather-based recommendations for your journey
 - **Modern Web Interface**: Clean, responsive frontend with Bootstrap styling
-- **📱 Mobile App Simulation**: Interactive iOS app preview with modern Revolut-inspired design
-- **🤖 Telegram Bot**: Interactive bot for quick rain checks on the go
-
-## 📱 Mobile App Preview
-
-Try the mobile app simulation: Open `frontend/mobile-app-simulation.html` in your browser to see the iOS app design with:
-- **Modern UI**: Revolut-inspired minimalistic design
-- **Commute Settings**: Configure work days and commute times
-- **Weather Integration**: Real-time weather checking with map visualization
-- **Address Sync**: Automatic synchronization between screens
-- **Push Notifications**: Simulated rain alerts and clear weather notifications
+- **Mobile App Simulation**: Interactive iOS app preview with modern Revolut-inspired design
+- **Telegram Bot**: Interactive bot for quick rain checks on the go
 
 ## 🏗️ Architecture
 
