@@ -14,7 +14,7 @@
 #
 # Terminal 2: Start the Telegram Bot
 # -----------------------------------
-# In your project's root directory (MotoRain-1), run:
+# In your project's root directory (MotoRain-1), run: 
 #
 # > cd telegram_bot
 # > py bot.py
