@@ -6,7 +6,7 @@ A real-time weather analysis application that helps cyclists and motorcyclists d
 
 MotoRain is available in three convenient formats to suit your needs:
 
-1.  **🤖 Telegram Bot:** The quickest way to check weather on the go. Send a message, get a result. Perfect for daily commuters who want instant checks or scheduled alerts.
+1.  **🤖 Telegram Bot:** The quickest way to check the weather on the go. Send a message, get a result. Perfect for daily commuters who want instant checks or scheduled alerts.
 2.  **💻 Web Interface:** A visual dashboard to explore the radar map and check routes from your browser.
 3.  **📱 Mobile App:** A dedicated iOS-style app experience for heavy users, featuring push notifications and a seamless UI.
 
